@@ -1,4 +1,14 @@
+---
+title: Value Intelligence Hub App README
+type: resource
+tags: [readme, resource, value-intelligence-hub, lifepoint, react, vite]
+updated: 2026-07-23
+related: ["[[value-intelligence-hub]]", "[[memory/projects/value-intelligence-hub]]", "[[lifepoint-financial-design]]"]
+---
+
 # React + TypeScript + Vite
+
+Workspace context: this is the app README for [[value-intelligence-hub|Value Intelligence Hub]], the [[lifepoint-financial-design|Lifepoint Financial Design]] business-owner dashboard project.
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
