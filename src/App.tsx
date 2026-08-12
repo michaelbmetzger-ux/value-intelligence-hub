@@ -2764,29 +2764,35 @@ function ViewPreferenceControls<T extends string>({
   onPreset: (sections: T[]) => void
 }) {
   return (
-    <section className="view-preference-card">
-      <div>
-        <span>Advisor view controls</span>
-        <h2>{title}</h2>
-        <p>{description}</p>
+    <section className="panel-visibility-card">
+      <div className="panel-visibility-header">
+        <div>
+          <span>Panel visibility</span>
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
+        <div className="view-preset-actions">
+          <button type="button" onClick={() => onPreset(defaultSections)}>Show all</button>
+          <button type="button" onClick={() => onPreset(focusSections)}>Focus mode</button>
+        </div>
       </div>
-      <div className="view-preset-actions">
-        <button type="button" onClick={() => onPreset(defaultSections)}>Show all</button>
-        <button type="button" onClick={() => onPreset(focusSections)}>Focus mode</button>
-      </div>
-      <div className="view-toggle-grid">
+      <div className="panel-toggle-strip">
         {options.map((option) => {
           const checked = selectedSections.includes(option.id)
           return (
-            <label key={option.id} className={checked ? 'view-toggle active' : 'view-toggle'}>
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => onToggle(option.id)}
-              />
-              <span>{option.label}</span>
-              <small>{option.description}</small>
-            </label>
+            <button
+              key={option.id}
+              type="button"
+              className={checked ? 'panel-toggle active' : 'panel-toggle'}
+              onClick={() => onToggle(option.id)}
+              aria-pressed={checked}
+              title={option.description}
+            >
+              <span className="toggle-switch" aria-hidden="true">
+                <span />
+              </span>
+              {option.label}
+            </button>
           )
         })}
       </div>

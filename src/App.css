@@ -157,14 +157,14 @@
 .side-nav nav button {
   min-height: 43px;
   border-radius: 8px;
-  background: transparent;
-  color: #c8d3e2;
+  background: rgba(255, 255, 255, 0.035);
+  color: #eef4ff;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 12px;
   text-align: left;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .side-nav nav button:hover,
@@ -589,44 +589,50 @@
   gap: 10px;
 }
 
-.view-preference-card {
+.panel-visibility-card {
   display: grid;
-  grid-template-columns: minmax(260px, 0.8fr) auto;
-  gap: 18px;
-  align-items: start;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px 16px;
   border: 1px solid #bfdbfe;
   border-radius: 10px;
-  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+  background: #f8fbff;
 }
 
-.view-preference-card > div:first-child span {
+.panel-visibility-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.panel-visibility-header span {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   color: var(--blue);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.view-preference-card h2 {
+.panel-visibility-header h2 {
   margin: 0;
-  font-size: 19px;
+  font-size: 17px;
   line-height: 1.2;
 }
 
-.view-preference-card p {
-  margin: 6px 0 0;
+.panel-visibility-header p {
+  margin: 5px 0 0;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .view-preset-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .view-preset-actions button {
@@ -637,7 +643,7 @@
   cursor: pointer;
   font-size: 13px;
   font-weight: 850;
-  padding: 8px 12px;
+  padding: 7px 11px;
 }
 
 .view-preset-actions button:hover {
@@ -645,46 +651,60 @@
   color: var(--blue);
 }
 
-.view-toggle-grid {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 10px;
+.panel-toggle-strip {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.view-toggle {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px 10px;
-  align-items: start;
-  padding: 12px;
+.panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 999px;
   background: #ffffff;
+  color: #475569;
   cursor: pointer;
+  font-size: 13px;
+  font-weight: 850;
+  padding: 6px 10px 6px 7px;
 }
 
-.view-toggle.active {
-  border-color: #60a5fa;
-  background: #f8fbff;
-}
-
-.view-toggle input {
-  margin-top: 3px;
-  accent-color: var(--blue);
-}
-
-.view-toggle span {
+.panel-toggle.active {
+  border-color: #93c5fd;
+  background: #eff6ff;
   color: #0f172a;
-  font-size: 14px;
-  font-weight: 900;
 }
 
-.view-toggle small {
-  grid-column: 2;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
+.toggle-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 0.16s ease;
+}
+
+.toggle-switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.24);
+  transition: transform 0.16s ease;
+}
+
+.panel-toggle.active .toggle-switch {
+  background: var(--blue);
+}
+
+.panel-toggle.active .toggle-switch span {
+  transform: translateX(14px);
 }
 
 .data-warning {
