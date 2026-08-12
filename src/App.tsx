@@ -84,6 +84,23 @@ type IndustryBenchmarkId =
   | 'commercial-cleaning'
   | 'niche-markets'
 
+type KpiViewSection = 'data-confidence' | 'kpi-table' | 'industry-benchmarking'
+type ForecastViewSection =
+  | 'forward-health'
+  | 'risk-radar'
+  | 'valuation-range'
+  | 'source-map'
+  | 'rolling-forecast'
+  | 'forecast-vs-industry'
+  | 'assumptions'
+  | 'multiple-sensitivity'
+
+type ViewPreferenceOption<T extends string> = {
+  id: T
+  label: string
+  description: string
+}
+
 type Financials = {
   revenue: number
   totalExpenses: number
@@ -292,6 +309,28 @@ const dimensions = [
   { id: 'finance', label: 'Finance', icon: CircleDollarSign, color: '#0284c7' },
   { id: 'legal', label: 'Legal', icon: ShieldCheck, color: '#be185d' },
 ]
+
+const kpiViewOptions: ViewPreferenceOption<KpiViewSection>[] = [
+  { id: 'data-confidence', label: 'Data confidence', description: 'Shows what is real, demo, and still missing.' },
+  { id: 'kpi-table', label: 'KPI table', description: 'Shows the full operating KPI table.' },
+  { id: 'industry-benchmarking', label: 'Industry benchmarking', description: 'Compares company KPIs against the selected industry.' },
+]
+
+const forecastViewOptions: ViewPreferenceOption<ForecastViewSection>[] = [
+  { id: 'forward-health', label: 'Forward health', description: 'Shows current, 30-day, 90-day, 6-month, and 12-month health.' },
+  { id: 'risk-radar', label: 'Risk radar', description: 'Shows the highest-risk signals behind the forecast.' },
+  { id: 'valuation-range', label: 'Valuation range', description: 'Shows bear, base, and upside value cases.' },
+  { id: 'source-map', label: 'Source map', description: 'Shows where forecast numbers come from.' },
+  { id: 'rolling-forecast', label: 'Rolling forecast', description: 'Shows projected revenue, margin, VES, and value by period.' },
+  { id: 'forecast-vs-industry', label: 'Forecast vs industry', description: 'Compares 12-month projection against industry averages.' },
+  { id: 'assumptions', label: 'Assumptions', description: 'Shows the levers behind the projection.' },
+  { id: 'multiple-sensitivity', label: 'Multiple sensitivity', description: 'Shows normalized EBITDA across buyer multiple cases.' },
+]
+
+const defaultKpiViewSections: KpiViewSection[] = kpiViewOptions.map((option) => option.id)
+const defaultForecastViewSections: ForecastViewSection[] = forecastViewOptions.map((option) => option.id)
+const focusKpiViewSections: KpiViewSection[] = ['kpi-table', 'industry-benchmarking']
+const focusForecastViewSections: ForecastViewSection[] = ['forward-health', 'valuation-range', 'rolling-forecast']
 
 const qboReports = [
   {
@@ -2705,6 +2744,56 @@ function QboImportAudit({ status }: { status: UploadStatus }) {
   )
 }
 
+function ViewPreferenceControls<T extends string>({
+  title,
+  description,
+  options,
+  selectedSections,
+  defaultSections,
+  focusSections,
+  onToggle,
+  onPreset,
+}: {
+  title: string
+  description: string
+  options: ViewPreferenceOption<T>[]
+  selectedSections: T[]
+  defaultSections: T[]
+  focusSections: T[]
+  onToggle: (section: T) => void
+  onPreset: (sections: T[]) => void
+}) {
+  return (
+    <section className="view-preference-card">
+      <div>
+        <span>Advisor view controls</span>
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </div>
+      <div className="view-preset-actions">
+        <button type="button" onClick={() => onPreset(defaultSections)}>Show all</button>
+        <button type="button" onClick={() => onPreset(focusSections)}>Focus mode</button>
+      </div>
+      <div className="view-toggle-grid">
+        {options.map((option) => {
+          const checked = selectedSections.includes(option.id)
+          return (
+            <label key={option.id} className={checked ? 'view-toggle active' : 'view-toggle'}>
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => onToggle(option.id)}
+              />
+              <span>{option.label}</span>
+              <small>{option.description}</small>
+            </label>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function LastQboImportPanel({
   log,
   emptyTitle = 'No QBO import recorded yet.',
@@ -4109,6 +4198,8 @@ export default function App() {
   const [portalModePreference, setPortalModePreference] = useState<PortalMode>('advisor')
   const [activeAssessmentDimension, setActiveAssessmentDimension] = useState('planning')
   const [selectedIndustryId, setSelectedIndustryId] = useState<IndustryBenchmarkId>('professional-services')
+  const [visibleKpiSections, setVisibleKpiSections] = useState<KpiViewSection[]>(defaultKpiViewSections)
+  const [visibleForecastSections, setVisibleForecastSections] = useState<ForecastViewSection[]>(defaultForecastViewSections)
   const [companyForm, setCompanyForm] = useState<CompanyForm>({
     name: '',
     industryId: 'professional-services',
@@ -4433,6 +4524,24 @@ export default function App() {
     setUploadStatus({ tone: 'success', message: 'Value Engine answer saved. The dashboard trajectory now reflects any score change.' })
   }
 
+  const toggleKpiSection = (section: KpiViewSection) => {
+    setVisibleKpiSections((current) => {
+      if (current.includes(section)) {
+        return current.filter((item) => item !== section)
+      }
+      return [...current, section]
+    })
+  }
+
+  const toggleForecastSection = (section: ForecastViewSection) => {
+    setVisibleForecastSections((current) => {
+      if (current.includes(section)) {
+        return current.filter((item) => item !== section)
+      }
+      return [...current, section]
+    })
+  }
+
   if (!session) {
     return (
       <PortalLogin
@@ -4724,94 +4833,136 @@ export default function App() {
 
         {activeView === 'kpis' && (
           <div className="page-stack">
-            <Panel title="Data Confidence" subtitle="What is real, what is demo, and what needs an import" icon={Database}>
-              <div className="confidence-grid">
-                <article>
-                  <strong>Actual data needed</strong>
-                  <p>QBO exports, CRM/customer reports, pipeline reports, payroll/labor reports, recurring revenue schedule, add-back schedule, and completed assessment responses.</p>
-                </article>
-                <article>
-                  <strong>Current sample state</strong>
-                  <p>{client.name} is loaded so workflows and reports can be tested before real monthly data is connected.</p>
-                </article>
-                <article>
-                  <strong>Advisor standard</strong>
-                  <p>Every KPI should show source, confidence, target, gap, and next action before it appears in a client meeting.</p>
-                </article>
-              </div>
-            </Panel>
-            <Panel title="Key KPI Operating Table" subtitle="Financial, operational, transferability, and future-health indicators" icon={Gauge}>
-              <KpiTable model={model} />
-            </Panel>
-            <Panel title="Industry Benchmarking" subtitle="Toggle industries and compare company KPIs against built-in averages" icon={BarChart3}>
-              <IndustryBenchmarkPanel
-                financials={financials}
-                model={model}
-                selectedIndustryId={selectedIndustryId}
-                onIndustryChange={setSelectedIndustryId}
-              />
-            </Panel>
+            <ViewPreferenceControls
+              title="Choose KPI panels"
+              description="Turn KPI sections on or off so the workspace matches the conversation you want to have."
+              options={kpiViewOptions}
+              selectedSections={visibleKpiSections}
+              defaultSections={defaultKpiViewSections}
+              focusSections={focusKpiViewSections}
+              onToggle={toggleKpiSection}
+              onPreset={setVisibleKpiSections}
+            />
+            {visibleKpiSections.includes('data-confidence') && (
+              <Panel title="Data Confidence" subtitle="What is real, what is demo, and what needs an import" icon={Database}>
+                <div className="confidence-grid">
+                  <article>
+                    <strong>Actual data needed</strong>
+                    <p>QBO exports, CRM/customer reports, pipeline reports, payroll/labor reports, recurring revenue schedule, add-back schedule, and completed assessment responses.</p>
+                  </article>
+                  <article>
+                    <strong>Current sample state</strong>
+                    <p>{client.name} is loaded so workflows and reports can be tested before real monthly data is connected.</p>
+                  </article>
+                  <article>
+                    <strong>Advisor standard</strong>
+                    <p>Every KPI should show source, confidence, target, gap, and next action before it appears in a client meeting.</p>
+                  </article>
+                </div>
+              </Panel>
+            )}
+            {visibleKpiSections.includes('kpi-table') && (
+              <Panel title="Key KPI Operating Table" subtitle="Financial, operational, transferability, and future-health indicators" icon={Gauge}>
+                <KpiTable model={model} />
+              </Panel>
+            )}
+            {visibleKpiSections.includes('industry-benchmarking') && (
+              <Panel title="Industry Benchmarking" subtitle="Toggle industries and compare company KPIs against built-in averages" icon={BarChart3}>
+                <IndustryBenchmarkPanel
+                  financials={financials}
+                  model={model}
+                  selectedIndustryId={selectedIndustryId}
+                  onIndustryChange={setSelectedIndustryId}
+                />
+              </Panel>
+            )}
           </div>
         )}
 
         {activeView === 'forecast' && (
           <div className="page-stack">
-            <Panel title="Forward Health Score" subtitle="Current, 30-day, 90-day, 6-month, and 12-month company health" icon={Gauge}>
-              <ForwardHealthTable model={model} />
-            </Panel>
+            <ViewPreferenceControls
+              title="Choose forecast panels"
+              description="Turn forecast sections on or off when you want a tighter readout or a full modeling view."
+              options={forecastViewOptions}
+              selectedSections={visibleForecastSections}
+              defaultSections={defaultForecastViewSections}
+              focusSections={focusForecastViewSections}
+              onToggle={toggleForecastSection}
+              onPreset={setVisibleForecastSections}
+            />
+            {visibleForecastSections.includes('forward-health') && (
+              <Panel title="Forward Health Score" subtitle="Current, 30-day, 90-day, 6-month, and 12-month company health" icon={Gauge}>
+                <ForwardHealthTable model={model} />
+              </Panel>
+            )}
 
-            <Panel title="Risk Radar" subtitle="Cash, revenue, margin, concentration, debt, owner dependency, and data confidence" icon={Radar}>
-              <RiskRadarPanel model={model} />
-            </Panel>
+            {visibleForecastSections.includes('risk-radar') && (
+              <Panel title="Risk Radar" subtitle="Cash, revenue, margin, concentration, debt, owner dependency, and data confidence" icon={Radar}>
+                <RiskRadarPanel model={model} />
+              </Panel>
+            )}
 
-            <Panel title="Forecasted Valuation Range" subtitle="Bear, base, and upside cases with risk-adjusted multiples" icon={Target}>
-              <ValuationRangePanel model={model} />
-            </Panel>
+            {visibleForecastSections.includes('valuation-range') && (
+              <Panel title="Forecasted Valuation Range" subtitle="Bear, base, and upside cases with risk-adjusted multiples" icon={Target}>
+                <ValuationRangePanel model={model} />
+              </Panel>
+            )}
 
-            <Panel title="Where Forecast Numbers Come From" subtitle="Input source, current value, and forecast use" icon={Database}>
-              <ForecastSourceMap client={client} model={model} />
-            </Panel>
+            {visibleForecastSections.includes('source-map') && (
+              <Panel title="Where Forecast Numbers Come From" subtitle="Input source, current value, and forecast use" icon={Database}>
+                <ForecastSourceMap client={client} model={model} />
+              </Panel>
+            )}
 
-            <Panel title="Rolling Forecast" subtitle="Projected next 30 days, quarter, 6 months, and year" icon={LineChart}>
-              <ForecastTable model={model} />
-            </Panel>
+            {visibleForecastSections.includes('rolling-forecast') && (
+              <Panel title="Rolling Forecast" subtitle="Projected next 30 days, quarter, 6 months, and year" icon={LineChart}>
+                <ForecastTable model={model} />
+              </Panel>
+            )}
 
-            <Panel title="Forecast Vs Industry" subtitle="12-month projection compared with the selected industry average" icon={BarChart3}>
-              <ForecastIndustryComparison financials={financials} model={model} benchmark={selectedIndustryBenchmark} />
-            </Panel>
+            {visibleForecastSections.includes('forecast-vs-industry') && (
+              <Panel title="Forecast Vs Industry" subtitle="12-month projection compared with the selected industry average" icon={BarChart3}>
+                <ForecastIndustryComparison financials={financials} model={model} benchmark={selectedIndustryBenchmark} />
+              </Panel>
+            )}
 
-            <Panel title="Forecast Assumptions" subtitle="The levers behind the projection" icon={Target}>
-              <ForecastAssumptionTable />
-              <div className="forecast-grid">
-                <article>
-                  <span>Current position</span>
-                  <p>Value is tracking at {money(model.currentValue)} using normalized EBITDA and a {model.currentMultiple.toFixed(1)}x score-derived multiple.</p>
-                </article>
-                <article>
-                  <span>Growth case</span>
-                  <p>Base forecast assumes 9% annual revenue growth, 2.4 points of margin improvement, and steady VES lift from action-plan execution.</p>
-                </article>
-                <article>
-                  <span>What changes the math</span>
-                  <p>Recurring revenue, lower owner dependency, documented delivery, and lower concentration improve the buyer multiple.</p>
-                </article>
-                <article>
-                  <span>Risk to name</span>
-                  <p>The model should be rebuilt each month from actual QBO/CRM data, not treated as a static projection.</p>
-                </article>
-              </div>
-            </Panel>
-
-            <Panel title="Multiple Sensitivity" subtitle="Normalized EBITDA across buyer multiple cases" icon={Target}>
-              <div className="multiple-grid">
-                {[3, 4, 5, 6, 7, 8].map((multiple) => (
-                  <article key={multiple} className={Math.round(model.currentMultiple) === multiple ? 'current' : multiple === 8 ? 'target' : ''}>
-                    <span>{multiple}x</span>
-                    <strong>{money(financials.normalizedEbitda * multiple)}</strong>
+            {visibleForecastSections.includes('assumptions') && (
+              <Panel title="Forecast Assumptions" subtitle="The levers behind the projection" icon={Target}>
+                <ForecastAssumptionTable />
+                <div className="forecast-grid">
+                  <article>
+                    <span>Current position</span>
+                    <p>Value is tracking at {money(model.currentValue)} using normalized EBITDA and a {model.currentMultiple.toFixed(1)}x score-derived multiple.</p>
                   </article>
-                ))}
-              </div>
-            </Panel>
+                  <article>
+                    <span>Growth case</span>
+                    <p>Base forecast assumes 9% annual revenue growth, 2.4 points of margin improvement, and steady VES lift from action-plan execution.</p>
+                  </article>
+                  <article>
+                    <span>What changes the math</span>
+                    <p>Recurring revenue, lower owner dependency, documented delivery, and lower concentration improve the buyer multiple.</p>
+                  </article>
+                  <article>
+                    <span>Risk to name</span>
+                    <p>The model should be rebuilt each month from actual QBO/CRM data, not treated as a static projection.</p>
+                  </article>
+                </div>
+              </Panel>
+            )}
+
+            {visibleForecastSections.includes('multiple-sensitivity') && (
+              <Panel title="Multiple Sensitivity" subtitle="Normalized EBITDA across buyer multiple cases" icon={Target}>
+                <div className="multiple-grid">
+                  {[3, 4, 5, 6, 7, 8].map((multiple) => (
+                    <article key={multiple} className={Math.round(model.currentMultiple) === multiple ? 'current' : multiple === 8 ? 'target' : ''}>
+                      <span>{multiple}x</span>
+                      <strong>{money(financials.normalizedEbitda * multiple)}</strong>
+                    </article>
+                  ))}
+                </div>
+              </Panel>
+            )}
           </div>
         )}
 
