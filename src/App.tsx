@@ -40,6 +40,15 @@ import {
   type PortalRole,
   type Session,
 } from './authModel'
+import {
+  buildSensitivityMultiples,
+  calculateBearCaseMultiple,
+  calculateForecastAssumptions,
+  calculateEnterpriseValue,
+  calculateIndustryAnchoredMultiple,
+  projectReducedPercentage,
+  type MultipleMethodology,
+} from './valuationModel'
 import './App.css'
 
 type View = 'dashboard' | 'value-engine' | 'kpis' | 'forecast' | 'reports'
@@ -138,7 +147,8 @@ type MonthlySnapshot = {
   ebitda: number
   ebitdaMargin: number
   vesScore: number
-  value: number
+  value: number | null
+  valuationMethod?: 'industry-anchored-v1'
   healthScore?: number
   grossMargin?: number
   dso?: number
@@ -247,7 +257,7 @@ type ForwardHealthPeriod = {
   runway: number
   revenue: number
   margin: number
-  value: number
+  value: number | null
   confidence: 'High' | 'Medium' | 'Low'
 }
 
@@ -263,7 +273,7 @@ type RiskSignal = {
 
 type ValuationScenario = {
   label: 'Bear' | 'Base' | 'Upside'
-  value: number
+  value: number | null
   multiple: number
   summary: string
 }
@@ -272,6 +282,7 @@ type CfoAdvisoryModel = {
   forwardHealth: ForwardHealthPeriod[]
   riskSignals: RiskSignal[]
   valuationRange: ValuationScenario[]
+  multipleMethodology: MultipleMethodology
   primaryRisk: RiskSignal
   secondaryRisk: RiskSignal
   whatBreaksFirst: string
@@ -319,9 +330,9 @@ const kpiViewOptions: ViewPreferenceOption<KpiViewSection>[] = [
 const forecastViewOptions: ViewPreferenceOption<ForecastViewSection>[] = [
   { id: 'forward-health', label: 'Forward health', description: 'Shows current, 30-day, 90-day, 6-month, and 12-month health.' },
   { id: 'risk-radar', label: 'Risk radar', description: 'Shows the highest-risk signals behind the forecast.' },
-  { id: 'valuation-range', label: 'Valuation range', description: 'Shows bear, base, and upside value cases.' },
+  { id: 'valuation-range', label: 'Valuation range', description: 'Shows bear, base, and upside enterprise-value cases.' },
   { id: 'source-map', label: 'Source map', description: 'Shows where forecast numbers come from.' },
-  { id: 'rolling-forecast', label: 'Rolling forecast', description: 'Shows projected revenue, margin, VES, and value by period.' },
+  { id: 'rolling-forecast', label: 'Rolling forecast', description: 'Shows projected revenue, margin, VES, and enterprise value by period.' },
   { id: 'forecast-vs-industry', label: 'Forecast vs industry', description: 'Compares 12-month projection against industry averages.' },
   { id: 'assumptions', label: 'Assumptions', description: 'Shows the levers behind the projection.' },
   { id: 'multiple-sensitivity', label: 'Multiple sensitivity', description: 'Shows normalized EBITDA across buyer multiple cases.' },
@@ -1215,7 +1226,8 @@ function mergeAdvisorObjectives(saved?: AdvisorObjective[]) {
   return defaultAdvisorObjectives.map((objective) => ({ ...objective, ...savedById.get(objective.id) }))
 }
 
-function money(value: number) {
+function money(value: number | null | undefined) {
+  if (value == null) return 'Not applicable'
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -1226,6 +1238,15 @@ function money(value: number) {
 
 function number(value: number, suffix = '') {
   return `${Math.round(value * 10) / 10}${suffix}`
+}
+
+function businessPositionSummary(financials: Financials) {
+  const profitable = financials.normalizedEbitda > 0
+  const cashStable = financials.operatingCashFlow >= 0 && financials.runway >= 3
+  if (profitable && cashStable) return 'The business currently shows positive normalized EBITDA and stable near-term cash capacity.'
+  if (!profitable && !cashStable) return 'The business currently has nonpositive normalized EBITDA and visible cash pressure, so an alternate valuation method and cash stabilization plan are required.'
+  if (!profitable) return 'The business currently has nonpositive normalized EBITDA, so the EV/EBITDA method is not applicable and an alternate valuation method is required.'
+  return 'The business currently shows positive normalized EBITDA, but cash pressure should be addressed before treating the forecast as durable.'
 }
 
 const financialFieldLabels: Partial<Record<keyof Financials, string>> = {
@@ -1358,7 +1379,7 @@ function getQuestionResponse(client: Client, questionId: string, dimensionId: st
   }
 }
 
-function buildForecasts(financials: Financials, vesScore: number) {
+function buildForecasts(financials: Financials, vesScore: number, benchmark: IndustryBenchmark, dataQuality: Client['dataQuality']) {
   const periods = [
     { label: 'Next 30 days', months: 1 },
     { label: 'Next quarter', months: 3 },
@@ -1368,16 +1389,35 @@ function buildForecasts(financials: Financials, vesScore: number) {
 
   return periods.map((period) => {
     const lift = period.months / 12
-    const revenue = financials.revenue * (1 + 0.09 * lift)
-    const margin = clamp(financials.ebitdaMargin + 2.4 * lift, 0, 60)
+    const assumptions = calculateForecastAssumptions({ financials, benchmark, months: period.months })
+    const revenue = financials.revenue * (1 + (assumptions.revenueGrowthRate / 100) * lift)
+    const margin = clamp(financials.ebitdaMargin + assumptions.marginExpansion, 0, 60)
     const normalizedEbitda = revenue * (margin / 100) + financials.ownerAddbacks
-    const ownerDependency = clamp(financials.ownerPctRevenue - 18 * lift, 20, 100)
-    const recurringRevenue = clamp(financials.recurringRevenue + 14 * lift, 0, 100)
-    const dso = clamp(financials.dso - 3 * lift, 0, 90)
-    const topClientPct = clamp(financials.topClientPct - 5 * lift, 5, 100)
+    const ownerDependency = projectReducedPercentage(financials.ownerPctRevenue, assumptions.ownerDependencyReduction)
+    const recurringRevenue = clamp(financials.recurringRevenue + assumptions.recurringRevenueLift, 0, 100)
+    const dso = clamp(financials.dso - assumptions.dsoReduction, 0, 90)
+    const topClientPct = projectReducedPercentage(financials.topClientPct, assumptions.topClientReduction)
     const projectedVes = clamp(vesScore + 1.1 * lift, 0, 10)
-    const multiple = 2.2 + projectedVes * 0.42
-    const value = normalizedEbitda * multiple
+    const forecastFinancials = {
+      ...financials,
+      revenue,
+      ebitda: revenue * (margin / 100),
+      ebitdaMargin: margin,
+      normalizedEbitda,
+      dso,
+      topClientPct,
+      ownerPctRevenue: ownerDependency,
+      recurringRevenue,
+      revenueGrowth: assumptions.revenueGrowthRate,
+    }
+    const multipleMethodology = calculateIndustryAnchoredMultiple({
+      financials: forecastFinancials,
+      benchmark,
+      vesScore: projectedVes,
+      dataQuality,
+    })
+    const multiple = multipleMethodology.adjusted
+    const value = calculateEnterpriseValue(normalizedEbitda, multiple)
     const monthlyCashFlow = (financials.operatingCashFlow || financials.ebitda || normalizedEbitda) / 12
     const monthlyExpense = Math.max((financials.totalExpenses || financials.revenue - financials.ebitda || financials.revenue * 0.7) / 12, 1)
     const cash = Math.max(0, financials.cash + monthlyCashFlow * period.months)
@@ -1385,24 +1425,17 @@ function buildForecasts(financials: Financials, vesScore: number) {
     const workingCapital = financials.workingCapital + Math.max(monthlyCashFlow, 0) * period.months * 0.2
     const healthScore = calculateHealthScore(
       {
-        ...financials,
-        revenue,
-        ebitda: revenue * (margin / 100),
-        ebitdaMargin: margin,
-        normalizedEbitda,
+        ...forecastFinancials,
         cash,
         runway,
         workingCapital,
-        dso,
-        topClientPct,
-        ownerPctRevenue: ownerDependency,
-        recurringRevenue,
       },
       projectedVes,
     )
 
     return {
       ...period,
+      assumptions,
       revenue,
       margin,
       normalizedEbitda,
@@ -1457,12 +1490,14 @@ function buildCfoAdvisory({
   vesScore,
   currentValue,
   currentMultiple,
+  multipleMethodology,
 }: {
   client: Client
   forecasts: ReturnType<typeof buildForecasts>
   vesScore: number
-  currentValue: number
+  currentValue: number | null
   currentMultiple: number
+  multipleMethodology: MultipleMethodology
 }): CfoAdvisoryModel {
   const financials = client.data.financials
   const history = buildVisibleHistory(client)
@@ -1571,26 +1606,26 @@ function buildCfoAdvisory({
   const riskSignals = signals.sort((a, b) => b.score - a.score)
   const primaryRisk = riskSignals[0]
   const secondaryRisk = riskSignals[1] ?? primaryRisk
-  const bearMultiple = clamp(currentMultiple - 0.75 - riskSignals.filter((signal) => signal.tone === 'red').length * 0.12, 1.5, 10)
+  const bearMultiple = calculateBearCaseMultiple(currentMultiple, multipleMethodology.floor, multipleMethodology.adjustments)
   const upsideForecast = forecasts.at(-1)
   const valuationRange: ValuationScenario[] = [
     {
       label: 'Bear',
-      value: financials.normalizedEbitda * bearMultiple,
+      value: calculateEnterpriseValue(financials.normalizedEbitda, bearMultiple),
       multiple: bearMultiple,
-      summary: 'Risk discount if revenue, cash, owner dependency, or data quality weakens.',
+      summary: 'Current normalized EBITDA with a lower multiple for unresolved operating or data risk.',
     },
     {
       label: 'Base',
       value: currentValue,
       multiple: currentMultiple,
-      summary: 'Current normalized EBITDA and current Value Engine profile.',
+      summary: 'Current normalized EBITDA times the selected industry benchmark, adjusted for company-specific quality and risk.',
     },
     {
       label: 'Upside',
       value: upsideForecast?.value ?? currentValue,
       multiple: upsideForecast?.multiple ?? currentMultiple,
-      summary: '12-month case if margin, recurring revenue, transferability, and VES improve.',
+      summary: '12-month case if margin, recurring revenue, transferability, and forecast assumptions improve.',
     },
   ]
   const confidence: ForwardHealthPeriod['confidence'] = client.dataQuality === 'actual' ? 'High' : client.dataQuality === 'partial' ? 'Medium' : 'Low'
@@ -1621,6 +1656,7 @@ function buildCfoAdvisory({
     forwardHealth,
     riskSignals,
     valuationRange,
+    multipleMethodology,
     primaryRisk,
     secondaryRisk,
     whatBreaksFirst: `If the current pattern continues, the first likely constraint is ${primaryRisk.label.toLowerCase()}: ${primaryRisk.summary} The second watch item is ${secondaryRisk.label.toLowerCase()}: ${secondaryRisk.summary}`,
@@ -1695,8 +1731,8 @@ function compareMetric({
 function getBenchmarkComparisons(financials: Financials, model: ReturnType<typeof useClientModel>, benchmark: IndustryBenchmark) {
   const oneYear = model.forecasts.at(-1)
   const forecastGrowth = oneYear ? percentGrowth(financials.revenue, oneYear.revenue) : 0
-  const industryValue = financials.normalizedEbitda * benchmark.evEbitdaMultiple
-  const targetGap = industryValue - model.currentValue
+  const industryValue = calculateEnterpriseValue(financials.normalizedEbitda, benchmark.evEbitdaMultiple)
+  const targetGap = industryValue != null && model.currentValue != null ? industryValue - model.currentValue : null
 
   return [
     {
@@ -1746,59 +1782,74 @@ function getBenchmarkComparisons(financials: Financials, model: ReturnType<typeo
       actual: `${model.currentMultiple.toFixed(1)}x`,
       benchmark: `${benchmark.evEbitdaMultiple.toFixed(1)}x`,
       insight: compareMetric({ actual: model.currentMultiple, benchmark: benchmark.evEbitdaMultiple, unit: 'x' }),
-      decision: targetGap > 0 ? `${money(targetGap)} implied gap to industry multiple.` : 'Current multiple clears the selected industry benchmark.',
+      decision: targetGap == null ? 'EV/EBITDA is not applicable with nonpositive normalized EBITDA.' : targetGap > 0 ? `${money(targetGap)} implied gap to industry multiple.` : 'Current multiple clears the selected industry benchmark.',
     },
   ]
 }
 
-function useClientModel(client: Client) {
+function useClientModel(client: Client, benchmark: IndustryBenchmark = getIndustryBenchmark(getIndustryIdByName(client.industry))) {
   return useMemo(() => {
     const dimensionScores = getDimensionScores(client.data.assessment)
     const vesScore = dimensionScores.reduce((sum, item) => sum + item.score, 0) / dimensionScores.length
     const financials = client.data.financials
-    const currentMultiple = 2.2 + vesScore * 0.42
-    const currentValue = financials.normalizedEbitda * currentMultiple
-    const targetMultiple = 8
-    const targetValue = financials.normalizedEbitda * targetMultiple
+    const multipleMethodology = calculateIndustryAnchoredMultiple({
+      financials,
+      benchmark,
+      vesScore,
+      dataQuality: client.dataQuality,
+    })
+    const currentMultiple = multipleMethodology.adjusted
+    const currentValue = calculateEnterpriseValue(financials.normalizedEbitda, currentMultiple)
+    const targetMultiple = multipleMethodology.ceiling
+    const targetValue = calculateEnterpriseValue(financials.normalizedEbitda, targetMultiple)
     const sorted = [...dimensionScores].sort((a, b) => a.score - b.score)
     const last = client.data.monthlyHistory.at(-1)
     const previous = client.data.monthlyHistory.at(-2)
     const healthScore = calculateHealthScore(financials, vesScore)
-    const forecasts = buildForecasts(financials, vesScore)
+    const forecasts = buildForecasts(financials, vesScore, benchmark, client.dataQuality)
     const cfoAdvisory = buildCfoAdvisory({
       client,
       forecasts,
       vesScore,
       currentValue,
       currentMultiple,
+      multipleMethodology,
     })
 
     return {
       dimensionScores,
       vesScore,
       currentMultiple,
+      multipleMethodology,
       currentValue,
       targetMultiple,
       targetValue,
-      valueGap: targetValue - currentValue,
+      valueGap: targetValue != null && currentValue != null ? targetValue - currentValue : null,
       priority: sorted[0],
       secondPriority: sorted[1],
       strongest: [...dimensionScores].sort((a, b) => b.score - a.score)[0],
-      valueChange: last && previous ? last.value - previous.value : 0,
+      valueChange: last?.valuationMethod === 'industry-anchored-v1' && previous?.valuationMethod === 'industry-anchored-v1' && last.value != null && previous.value != null ? last.value - previous.value : 0,
       vesChange: last && previous ? last.vesScore - previous.vesScore : 0,
       healthScore,
       forecasts,
       cfoAdvisory,
       kpis: getKpiRows(financials),
     }
-  }, [client])
+  }, [benchmark, client])
 }
 
 function buildMonthlySnapshot(client: Client, label: string, note?: string): MonthlySnapshot {
   const { financials } = client.data
   const dimensionScores = getDimensionScores(client.data.assessment)
   const vesScore = dimensionScores.reduce((sum, item) => sum + item.score, 0) / Math.max(dimensionScores.length, 1)
-  const value = financials.normalizedEbitda * (2.2 + vesScore * 0.42)
+  const benchmark = getIndustryBenchmark(getIndustryIdByName(client.industry))
+  const multipleMethodology = calculateIndustryAnchoredMultiple({
+    financials,
+    benchmark,
+    vesScore,
+    dataQuality: client.dataQuality,
+  })
+  const value = calculateEnterpriseValue(financials.normalizedEbitda, multipleMethodology.adjusted)
 
   return {
     month: label,
@@ -1807,6 +1858,7 @@ function buildMonthlySnapshot(client: Client, label: string, note?: string): Mon
     ebitdaMargin: financials.ebitdaMargin,
     vesScore,
     value,
+    valuationMethod: 'industry-anchored-v1',
     healthScore: calculateHealthScore(financials, vesScore),
     grossMargin: financials.grossMargin,
     dso: financials.dso,
@@ -1821,10 +1873,13 @@ function buildMonthlySnapshot(client: Client, label: string, note?: string): Mon
 
 function buildVisibleHistory(client: Client) {
   const live = buildMonthlySnapshot(client, 'Current', 'Live model')
-  const history = client.data.monthlyHistory.length ? client.data.monthlyHistory : [live]
+  const history = client.data.monthlyHistory.filter((snapshot) => snapshot.valuationMethod === 'industry-anchored-v1')
+  if (!history.length) return [live]
   const last = history.at(-1)
   const sameAsLive =
     last &&
+    last.value != null &&
+    live.value != null &&
     Math.abs(last.value - live.value) < 1 &&
     Math.abs(last.vesScore - live.vesScore) < 0.05 &&
     last.revenue === live.revenue
@@ -1835,8 +1890,8 @@ function buildVisibleHistory(client: Client) {
   return [...history, live].slice(-10)
 }
 
-function getSnapshotDelta(current?: number, previous?: number) {
-  if (current === undefined || previous === undefined) return undefined
+function getSnapshotDelta(current?: number | null, previous?: number | null) {
+  if (current == null || previous == null) return undefined
   return current - previous
 }
 
@@ -2286,8 +2341,10 @@ function applyCrmRowsToClient(client: Client, rows: unknown[][], fileName: strin
 
   const month = new Date().toLocaleString('en-US', { month: 'short' })
   const historyWithoutCurrentMonth = client.data.monthlyHistory.filter((item) => item.month !== month)
+  const nextDataQuality: Client['dataQuality'] = touched.size >= 3 ? 'actual' : 'partial'
   const clientWithFinancials: Client = {
     ...client,
+    dataQuality: nextDataQuality,
     data: {
       ...client.data,
       financials: nextFinancials,
@@ -2299,7 +2356,7 @@ function applyCrmRowsToClient(client: Client, rows: unknown[][], fileName: strin
     client: {
       ...client,
       lastUpdated: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
-      dataQuality: touched.size >= 3 ? 'actual' : 'partial',
+      dataQuality: nextDataQuality,
       data: {
         ...client.data,
         financials: nextFinancials,
@@ -2452,8 +2509,10 @@ function applyQboRowsToClient(client: Client, rows: unknown[][], fileName: strin
 
   const month = new Date().toLocaleString('en-US', { month: 'short' })
   const historyWithoutCurrentMonth = client.data.monthlyHistory.filter((item) => item.month !== month)
+  const nextDataQuality: Client['dataQuality'] = imported.length >= 5 ? 'actual' : 'partial'
   const clientWithFinancials: Client = {
     ...client,
+    dataQuality: nextDataQuality,
     data: {
       ...client.data,
       financials: nextFinancials,
@@ -2465,7 +2524,7 @@ function applyQboRowsToClient(client: Client, rows: unknown[][], fileName: strin
     client: {
       ...client,
       lastUpdated: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
-      dataQuality: imported.length >= 5 ? 'actual' : 'partial',
+      dataQuality: nextDataQuality,
       data: {
         ...client.data,
         financials: nextFinancials,
@@ -2481,8 +2540,10 @@ function addPdfText(doc: jsPDF, text: string, x: number, y: number, maxWidth = 1
   doc.setFont('helvetica', style)
   doc.setFontSize(size)
   const lines = doc.splitTextToSize(text, maxWidth)
-  doc.text(lines, x, y)
-  return y + lines.length * (size * 0.42) + 3
+  const requiredSpace = lines.length * (size * 0.42) + 3
+  const cursor = ensurePdfSpace(doc, y, requiredSpace)
+  doc.text(lines, x, cursor)
+  return cursor + requiredSpace
 }
 
 function ensurePdfSpace(doc: jsPDF, y: number, needed = 28) {
@@ -2511,14 +2572,16 @@ function addPdfBullets(doc: jsPDF, bullets: string[], y: number) {
 function addPdfKpiRows(doc: jsPDF, rows: Array<{ label: string; value: string; note: string }>, y: number) {
   let cursor = y
   rows.forEach((row) => {
-    cursor = ensurePdfSpace(doc, cursor, 18)
+    const noteLines = doc.splitTextToSize(row.note, 92)
+    const rowHeight = Math.max(14, noteLines.length * 4.2 + 5)
+    cursor = ensurePdfSpace(doc, cursor, rowHeight)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(9)
     doc.text(row.label, 18, cursor)
     doc.text(row.value, 75, cursor)
     doc.setFont('helvetica', 'normal')
-    doc.text(doc.splitTextToSize(row.note, 92), 104, cursor)
-    cursor += 14
+    doc.text(noteLines, 104, cursor)
+    cursor += rowHeight
   })
   return cursor + 2
 }
@@ -2537,9 +2600,9 @@ function downloadAdvisorPdf(client: Client, model: ReturnType<typeof useClientMo
     [
       { label: 'Health score', value: `${model.healthScore}/100`, note: 'Blends VES, margin, runway, recurring revenue, owner dependency, and concentration.' },
       { label: '90-day health', value: `${model.cfoAdvisory.forwardHealth.find((item) => item.label === 'Next quarter')?.healthScore ?? model.healthScore}/100`, note: 'Projected health if the current trend and advisor assumptions hold.' },
-      { label: 'Current value', value: money(model.currentValue), note: `${model.currentMultiple.toFixed(1)}x normalized EBITDA based on current Value Engine profile.` },
-      { label: 'Target value', value: money(model.targetValue), note: `${model.targetMultiple}x normalized EBITDA target case.` },
-      { label: 'Value gap', value: money(model.valueGap), note: 'Gap to close through quality of earnings, repeatability, growth, and lower risk.' },
+      { label: 'Estimated enterprise value', value: money(model.currentValue), note: `${model.currentMultiple.toFixed(1)}x normalized EBITDA, anchored to the selected ${benchmark.name} benchmark.` },
+      { label: 'Methodology-ceiling EV', value: money(model.targetValue), note: `${model.targetMultiple.toFixed(1)}x current normalized EBITDA at the methodology ceiling. This is not the 12-month upside forecast.` },
+      { label: 'Gap to methodology ceiling', value: money(model.valueGap), note: 'Illustrative gap using current earnings and the model ceiling, separate from the 12-month upside case.' },
     ],
     y,
   )
@@ -2549,7 +2612,7 @@ function downloadAdvisorPdf(client: Client, model: ReturnType<typeof useClientMo
     `What breaks first: ${model.cfoAdvisory.primaryRisk.label}. ${model.cfoAdvisory.primaryRisk.summary}`,
     `Second risk: ${model.cfoAdvisory.secondaryRisk.label}. ${model.cfoAdvisory.secondaryRisk.summary}`,
     `Cash danger date: ${model.cfoAdvisory.cashDangerDate}.`,
-    `Valuation range: ${model.cfoAdvisory.valuationRange.map((scenario) => `${scenario.label} ${money(scenario.value)}`).join(' / ')}.`,
+    `Enterprise-value range: ${model.cfoAdvisory.valuationRange.map((scenario) => `${scenario.label} ${money(scenario.value)}`).join(' / ')}.`,
   ], y)
 
   y = addPdfSection(doc, 'Forecast Source Chain', y)
@@ -2557,7 +2620,7 @@ function downloadAdvisorPdf(client: Client, model: ReturnType<typeof useClientMo
     'Baseline revenue, EBITDA, margin, cash, A/R, and runway come from QBO monthly exports.',
     'Customer concentration, revenue per client, and client count come from Sales by Customer and CRM/client-list data.',
     'Recurring revenue, pipeline coverage, and owner dependency require CRM/manual advisory inputs until system integrations exist.',
-    'Valuation multiple is tied to the Value Engine score, so better transferability can increase value even before EBITDA changes.',
+    'The valuation multiple starts with the selected industry benchmark, then adjusts for profitability, revenue quality, transferability, risk, and data confidence.',
     'The forecast should be rebuilt each month after new QBO, CRM, and assessment answers are loaded.',
   ], y)
 
@@ -2573,13 +2636,23 @@ function downloadAdvisorPdf(client: Client, model: ReturnType<typeof useClientMo
   y = addPdfSection(doc, 'Rolling Forecast', y)
   y = addPdfBullets(
     doc,
-    model.forecasts.map((item) => `${item.label}: ${money(item.value)} value, ${money(item.revenue)} revenue, ${item.margin.toFixed(1)}% EBITDA margin, ${item.projectedVes.toFixed(1)}/10 VES.`),
+    model.forecasts.map((item) => `${item.label}: ${money(item.value)} enterprise value, ${money(item.revenue)} revenue, ${item.margin.toFixed(1)}% EBITDA margin, ${item.projectedVes.toFixed(1)}/10 VES.`),
     y,
+  )
+
+  y = addPdfSection(doc, 'Enterprise Value Versus Owner Proceeds', y)
+  y = addPdfText(
+    doc,
+    'These figures estimate enterprise value, not owner proceeds. A transaction would normally subtract debt, add excess cash, and then account for taxes, fees, working-capital targets, and other closing adjustments.',
+    18,
+    y,
+    170,
+    9,
   )
 
   y = addPdfSection(doc, 'Meeting Agenda', y)
   y = addPdfBullets(doc, [
-    `Open with the value gap: current value is ${money(model.currentValue)} and target value is ${money(model.targetValue)}.`,
+    `Open with the methodology range: estimated enterprise value is ${money(model.currentValue)} and the current-earnings methodology ceiling is ${money(model.targetValue)}.`,
     `Name the lowest driver: ${model.priority.label} is ${model.priority.score.toFixed(1)}/10.`,
     'Ask which part of the business would slow down fastest if the owner stepped away for 30 days.',
     'Close with three commitments: document one workflow, create one non-owner lead source, and convert one offer into recurring revenue.',
@@ -2591,11 +2664,11 @@ function downloadAdvisorPdf(client: Client, model: ReturnType<typeof useClientMo
     ...actionRows.map((row) => `${row.label}: gap ${row.gap}. ${row.action}`),
   ], y)
 
-  y = addPdfSection(doc, '12-Month Target Case', y)
+  y = addPdfSection(doc, '12-Month Upside Case', y)
   y = addPdfText(
     doc,
     oneYear
-      ? `If the action plan holds, the model projects ${money(oneYear.value)} of value, ${money(oneYear.revenue)} annual revenue, ${oneYear.margin.toFixed(1)}% EBITDA margin, and ${oneYear.projectedVes.toFixed(1)}/10 VES.`
+      ? `If the action plan holds, the model projects ${money(oneYear.value)} of enterprise value, ${money(oneYear.revenue)} annual revenue, ${oneYear.margin.toFixed(1)}% EBITDA margin, and ${oneYear.projectedVes.toFixed(1)}/10 VES.`
       : 'No forecast available.',
     18,
     y,
@@ -2604,6 +2677,94 @@ function downloadAdvisorPdf(client: Client, model: ReturnType<typeof useClientMo
   )
 
   doc.save(`${safeFileName(client.name)}-advisor-report.pdf`)
+}
+
+function downloadValuationMethodologyPdf(client: Client, model: ReturnType<typeof useClientModel>, benchmark: IndustryBenchmark) {
+  const { financials } = client.data
+  const nextYear = model.forecasts.at(-1)
+  const methodology = model.cfoAdvisory.multipleMethodology
+  const doc = new jsPDF({ unit: 'mm', format: 'letter' })
+  let y = 18
+
+  y = addPdfText(doc, `${client.name} Valuation Methodology`, 14, y, 180, 18, 'bold')
+  y = addPdfText(doc, 'Plain-English explanation of how the Value Intelligence Hub creates the valuation range', 14, y, 180, 9)
+
+  y = addPdfSection(doc, 'The Short Version', y + 3)
+  y = addPdfText(
+    doc,
+    `The valuation is not a guess and it is not a single magic number. It starts with normalized EBITDA from the company's financials, anchors the multiple to the selected ${benchmark.name} industry benchmark, then adjusts that multiple for the company-specific facts a real buyer or lender would care about.`,
+    18,
+    y,
+    170,
+    10,
+  )
+
+  y = addPdfSection(doc, 'Core Formula', y)
+  y = addPdfKpiRows(
+    doc,
+    [
+      { label: 'Earnings base', value: money(financials.normalizedEbitda), note: 'Normalized EBITDA from QBO/imported financials plus confirmed owner add-backs.' },
+      { label: 'Industry anchor', value: `${benchmark.evEbitdaMultiple.toFixed(1)}x`, note: `Selected ${benchmark.name} EV/EBITDA benchmark, not a generic one-size-fits-all multiple.` },
+      { label: 'Model multiple', value: `${model.currentMultiple.toFixed(1)}x`, note: 'Industry anchor adjusted for company size, growth when reliable, margin, recurring revenue, owner dependency, concentration, collections speed, data quality, and Value Engine score.' },
+      { label: 'Estimated enterprise value', value: money(model.currentValue), note: 'Normalized EBITDA multiplied by the adjusted model multiple. This is before debt, excess cash, transaction costs, and closing adjustments.' },
+    ],
+    y,
+  )
+
+  y = addPdfSection(doc, 'Where The Inputs Come From', y)
+  y = addPdfBullets(doc, [
+    'QBO/client financials supply revenue, expenses, EBITDA, cash, A/R, working capital, debt, payroll, and operating cash flow.',
+    'Industry research supplies the starting multiple and benchmark targets for growth, margin, recurring revenue, owner dependency, concentration, and collections.',
+    'Advisor/client inputs supply the qualitative facts QBO cannot see, including owner dependency, process maturity, leadership depth, transferability, and recurring revenue quality.',
+    'The Value Engine score turns those qualitative facts into a consistent business-quality adjustment instead of relying only on gut feel.',
+  ], y)
+
+  y = addPdfSection(doc, 'Industry Benchmark Sources', y)
+  y = addPdfBullets(doc, [
+    ...benchmark.sourceNotes,
+    'Benchmarks are directional reference points. We refresh them as more current, size-specific, and industry-specific transaction evidence becomes available.',
+  ], y)
+
+  y = addPdfSection(doc, 'How The Multiple Is Adjusted', y)
+  y = addPdfBullets(
+    doc,
+    methodology.adjustments.map((item) => item.label === 'Industry benchmark'
+      ? `${item.label}: ${methodology.base.toFixed(1)}x starting point. ${item.reason}`
+      : `${item.label}: ${item.amount >= 0 ? '+' : ''}${item.amount.toFixed(1)}x. ${item.reason}`),
+    y,
+  )
+
+  y = addPdfSection(doc, 'Why We Show A Range', y)
+  y = addPdfBullets(doc, [
+    `Bear case: ${money(model.cfoAdvisory.valuationRange[0].value)} at ${model.cfoAdvisory.valuationRange[0].multiple.toFixed(1)}x, reflecting risk discounts if weak areas do not improve.`,
+    `Base case: ${money(model.cfoAdvisory.valuationRange[1].value)} at ${model.cfoAdvisory.valuationRange[1].multiple.toFixed(1)}x, reflecting the current company profile.`,
+    `Upside case: ${money(model.cfoAdvisory.valuationRange[2].value)} at ${model.cfoAdvisory.valuationRange[2].multiple.toFixed(1)}x, reflecting the 12-month improvement case.`,
+    'A range is more credible than one exact number because buyers, lenders, and successors price risk differently.',
+  ], y)
+
+  y = addPdfSection(doc, 'What Can Move The Valuation Higher', y)
+  y = addPdfBullets(doc, [
+    'Cleaner monthly financials and confirmed add-backs improve confidence in the earnings base.',
+    'Higher EBITDA margin proves the business can turn revenue into cash flow.',
+    'More recurring or contracted revenue makes the forecast more dependable.',
+    'Lower owner dependency makes the business easier to transfer or scale.',
+    'Lower client concentration reduces the risk that one relationship can damage value.',
+    'Better systems, leadership, and documented workflows improve the Value Engine score.',
+  ], y)
+
+  y = addPdfSection(doc, 'Professional Caveat', y)
+  y = addPdfText(
+    doc,
+    nextYear
+      ? `This report is an advisory estimate of enterprise value for planning and decision-making. It is designed to show what drives value and what could improve it. Owner proceeds may differ after debt, excess cash, transaction costs, taxes, and closing adjustments. If normalized EBITDA is zero or negative, this EBITDA-multiple method requires an alternate valuation approach. It is not a formal appraisal, fairness opinion, tax valuation, or offer to buy the company. The model should be refreshed as actual QBO reports, client data, and operating evidence improve. Current 12-month upside case: ${money(nextYear.value)}.`
+      : 'This report is an advisory estimate of enterprise value for planning and decision-making. Owner proceeds may differ after debt, excess cash, transaction costs, taxes, and closing adjustments. If normalized EBITDA is zero or negative, this EBITDA-multiple method requires an alternate valuation approach. It is not a formal appraisal, fairness opinion, tax valuation, or offer to buy the company. The model should be refreshed as actual QBO reports, client data, and operating evidence improve.',
+    18,
+    y,
+    170,
+    10,
+  )
+
+  doc.save(`${safeFileName(client.name)}-valuation-methodology.pdf`)
 }
 
 function downloadClientPdf(client: Client, model: ReturnType<typeof useClientModel>, benchmark: IndustryBenchmark) {
@@ -2618,7 +2779,7 @@ function downloadClientPdf(client: Client, model: ReturnType<typeof useClientMod
   y = addPdfSection(doc, 'Executive Read', y + 3)
   y = addPdfText(
     doc,
-    `The business is profitable and cash-stable. The most important decision issue is not survival; it is whether the company can become more transferable, more recurring, and less dependent on the owner. Current value is modeled at ${money(model.currentValue)}, with a ${money(model.valueGap)} gap to the target case.`,
+    `${businessPositionSummary(financials)} Estimated enterprise value is ${money(model.currentValue)}. The current-earnings methodology ceiling is ${money(model.targetValue)}, while the separate 12-month upside forecast is ${money(nextYear?.value)}.`,
     18,
     y,
     170,
@@ -2644,13 +2805,14 @@ function downloadClientPdf(client: Client, model: ReturnType<typeof useClientMod
   y = addPdfBullets(doc, [
     model.cfoAdvisory.whatBreaksFirst,
     `Cash danger date: ${model.cfoAdvisory.cashDangerDate}.`,
-    `Forecasted valuation range: ${model.cfoAdvisory.valuationRange.map((scenario) => `${scenario.label} ${money(scenario.value)}`).join(' / ')}.`,
+    `Forecasted enterprise-value range: ${model.cfoAdvisory.valuationRange.map((scenario) => `${scenario.label} ${money(scenario.value)}`).join(' / ')}.`,
+    'Enterprise value is not owner proceeds. A transaction normally subtracts debt, adds excess cash, and then accounts for taxes, fees, working-capital targets, and other closing adjustments.',
   ], y)
 
   y = addPdfSection(doc, 'Forecast For Decisions', y)
   y = addPdfBullets(doc, [
-    nextQuarter ? `Next quarter: projected value ${money(nextQuarter.value)}, revenue ${money(nextQuarter.revenue)}, margin ${nextQuarter.margin.toFixed(1)}%.` : 'Next quarter forecast unavailable.',
-    nextYear ? `Next year: projected value ${money(nextYear.value)}, revenue ${money(nextYear.revenue)}, margin ${nextYear.margin.toFixed(1)}%.` : 'Next year forecast unavailable.',
+    nextQuarter ? `Next quarter: projected enterprise value ${money(nextQuarter.value)}, revenue ${money(nextQuarter.revenue)}, margin ${nextQuarter.margin.toFixed(1)}%.` : 'Next quarter forecast unavailable.',
+    nextYear ? `Next year: projected enterprise value ${money(nextYear.value)}, revenue ${money(nextYear.revenue)}, margin ${nextYear.margin.toFixed(1)}%.` : 'Next year forecast unavailable.',
     'Use this to decide whether to invest in process documentation, marketing systems, hiring/delegation, and recurring offer packaging.',
   ], y)
 
@@ -2902,7 +3064,10 @@ function Panel({
 }
 
 function ValuationMarketChart({ client, model }: { client: Client; model: ReturnType<typeof useClientModel> }) {
-  const series = buildVisibleHistory(client)
+  const series = buildVisibleHistory(client).filter((item): item is MonthlySnapshot & { value: number } => item.value != null)
+  if (!series.length || model.currentValue == null) {
+    return <p className="methodology-note">EV/EBITDA is not applicable while normalized EBITDA is zero or negative. Use an alternate valuation method.</p>
+  }
   const width = 860
   const height = 320
   const padX = 52
@@ -2989,7 +3154,7 @@ function ValuationMarketChart({ client, model }: { client: Client; model: Return
           <strong>{completedObjectives}/{defaultAdvisorObjectives.length}</strong>
         </article>
         <article>
-          <span>Target value</span>
+          <span>Methodology-ceiling EV</span>
           <strong>{money(model.targetValue)}</strong>
         </article>
       </div>
@@ -3005,7 +3170,7 @@ function CompanyTrajectoryPanel({ client, model }: { client: Client; model: Retu
   const dimensionCurrent = current.dimensionScores ?? Object.fromEntries(model.dimensionScores.map((item) => [item.id, item.score]))
   const trendCards = [
     {
-      label: 'Valuation',
+      label: 'Estimated enterprise value',
       value: money(current.value),
       delta: getSnapshotDelta(current.value, previous?.value),
       format: money,
@@ -3052,7 +3217,7 @@ function CompanyTrajectoryPanel({ client, model }: { client: Client; model: Retu
                 <small>{snapshot.note ?? 'Snapshot'}</small>
               </div>
               <div>
-                <span>Valuation</span>
+                <span>Enterprise value</span>
                 <strong>{money(snapshot.value)}</strong>
                 <DeltaBadge delta={getSnapshotDelta(snapshot.value, prior?.value)} format={money} />
               </div>
@@ -3470,8 +3635,8 @@ function ForecastIndustryComparison({
 }) {
   const oneYear = model.forecasts.at(-1)
   const forecastGrowth = oneYear ? percentGrowth(financials.revenue, oneYear.revenue) : 0
-  const industryValue = financials.normalizedEbitda * benchmark.evEbitdaMultiple
-  const currentValueDelta = model.currentValue - industryValue
+  const industryValue = calculateEnterpriseValue(financials.normalizedEbitda, benchmark.evEbitdaMultiple)
+  const currentValueDelta = model.currentValue != null && industryValue != null ? model.currentValue - industryValue : null
   const forecastRule = forecastGrowth + (oneYear?.margin ?? financials.ebitdaMargin)
 
   return (
@@ -3494,7 +3659,7 @@ function ForecastIndustryComparison({
       <article>
         <span>Industry multiple value</span>
         <strong>{money(industryValue)}</strong>
-        <p>{currentValueDelta >= 0 ? `${money(currentValueDelta)} above industry multiple case.` : `${money(Math.abs(currentValueDelta))} below industry multiple case.`}</p>
+        <p>{currentValueDelta == null ? 'EV/EBITDA is not applicable with nonpositive normalized EBITDA.' : currentValueDelta >= 0 ? `${money(currentValueDelta)} above industry multiple case.` : `${money(Math.abs(currentValueDelta))} below industry multiple case.`}</p>
       </article>
       <article>
         <span>Growth + margin score</span>
@@ -3562,7 +3727,7 @@ function ForwardHealthTable({ model }: { model: ReturnType<typeof useClientModel
             <strong>{number(period.runway)} mo</strong>
           </div>
           <div>
-            <span>Value</span>
+            <span>Enterprise value</span>
             <strong>{money(period.value)}</strong>
           </div>
         </article>
@@ -3593,14 +3758,17 @@ function RiskRadarPanel({ model }: { model: ReturnType<typeof useClientModel> })
 }
 
 function ValuationRangePanel({ model }: { model: ReturnType<typeof useClientModel> }) {
-  const values = model.cfoAdvisory.valuationRange.map((scenario) => scenario.value)
+  const values = model.cfoAdvisory.valuationRange.map((scenario) => scenario.value).filter((value): value is number => value != null)
+  if (!values.length) {
+    return <p className="methodology-note">EV/EBITDA is not applicable while normalized EBITDA is zero or negative. Use an alternate valuation method.</p>
+  }
   const min = Math.min(...values)
   const max = Math.max(...values)
 
   return (
     <div className="valuation-range-panel">
       {model.cfoAdvisory.valuationRange.map((scenario) => {
-        const left = ((scenario.value - min) / Math.max(max - min, 1)) * 72
+        const left = scenario.value == null ? 0 : ((scenario.value - min) / Math.max(max - min, 1)) * 72
         return (
           <article key={scenario.label} className={scenario.label.toLowerCase()}>
             <span>{scenario.label} case</span>
@@ -3679,6 +3847,36 @@ function QboGuide() {
   )
 }
 
+function ValuationMethodologyPanel({ model, benchmark }: { model: ReturnType<typeof useClientModel>; benchmark: IndustryBenchmark }) {
+  return (
+    <div className="valuation-methodology-panel">
+      <article className="methodology-formula">
+        <span>Core formula</span>
+        <strong>Normalized EBITDA × industry-anchored multiple</strong>
+        <p>
+          The model starts with {benchmark.name} at {benchmark.evEbitdaMultiple.toFixed(1)}x, then adjusts to {model.currentMultiple.toFixed(1)}x for company-specific quality, risk, data confidence, and transferability.
+        </p>
+      </article>
+      <div className="methodology-adjustments">
+        {model.cfoAdvisory.multipleMethodology.adjustments.map((adjustment) => (
+          <article key={adjustment.label}>
+            <span>{adjustment.label}</span>
+            <strong>
+              {adjustment.label === 'Industry benchmark'
+                ? `${model.cfoAdvisory.multipleMethodology.base.toFixed(1)}x base`
+                : `${adjustment.amount >= 0 ? '+' : ''}${adjustment.amount.toFixed(1)}x`}
+            </strong>
+            <p>{adjustment.reason}</p>
+          </article>
+        ))}
+      </div>
+      <p className="methodology-note">
+        This is a planning estimate, not a formal appraisal or offer. The range should be refreshed when financials, add-backs, industry evidence, or operating facts change.
+      </p>
+    </div>
+  )
+}
+
 function ForecastTable({ model }: { model: ReturnType<typeof useClientModel> }) {
   return (
     <div className="forecast-table">
@@ -3721,12 +3919,18 @@ function ForecastSourceMap({ client, model }: { client: Client; model: ReturnTyp
       title: 'Value Engine answers',
       source: '289-question assessment plus advisor evidence',
       current: `${model.vesScore.toFixed(1)}/10 VES, lowest driver is ${model.priority.label}`,
-      forecastUse: 'Converts qualitative transferability into the valuation multiple and identifies what must change to close the gap.',
+      forecastUse: 'Adjusts the selected industry multiple for transferability, systems, leadership, owner dependency, and execution quality.',
+    },
+    {
+      title: 'Industry valuation benchmark',
+      source: `${model.cfoAdvisory.multipleMethodology.base.toFixed(1)}x ${model.cfoAdvisory.multipleMethodology.methodology[0]}`,
+      current: `${model.currentMultiple.toFixed(1)}x after company-specific adjustments`,
+      forecastUse: 'Anchors the valuation multiple to industry research before applying quality, risk, and data-confidence adjustments.',
     },
     {
       title: 'Advisor assumptions',
       source: 'Explicit model assumptions reviewed each month',
-      current: '9% annual revenue growth, 2.4 margin-point improvement, VES lift from action execution',
+      current: 'Revenue growth, margin expansion, recurring revenue, owner dependency, DSO, and concentration assumptions are benchmark-aware.',
       forecastUse: 'Creates the 30-day, quarter, 6-month, and 12-month case until actual monthly trend data replaces assumptions.',
     },
   ]
@@ -3745,36 +3949,37 @@ function ForecastSourceMap({ client, model }: { client: Client; model: ReturnTyp
   )
 }
 
-function ForecastAssumptionTable() {
+function ForecastAssumptionTable({ model }: { model: ReturnType<typeof useClientModel> }) {
+  const nextYear = model.forecasts.at(-1)
   const rows = [
     {
       driver: 'Revenue growth',
       currentSource: 'QBO P&L by month + prior-year comparison',
-      assumption: '9% annualized base case until trend data replaces it',
+      assumption: nextYear ? `${nextYear.assumptions.revenueGrowthRate}% annual growth, anchored to selected industry benchmark and revenue quality` : 'Needs forecast model',
       decisionUse: 'Pricing, sales capacity, marketing spend, and hiring timing.',
     },
     {
       driver: 'EBITDA margin',
       currentSource: 'QBO P&L + add-back schedule',
-      assumption: '2.4 point annual margin improvement from scope control and delivery leverage',
+      assumption: nextYear ? `${nextYear.assumptions.marginExpansion} point margin improvement in the 12-month case` : 'Needs forecast model',
       decisionUse: 'Whether the business can fund growth without eroding cash.',
     },
     {
       driver: 'Recurring revenue',
       currentSource: 'CRM, billing export, contract/retainer schedule',
-      assumption: '14 point annual improvement from packaging services into recurring offers',
+      assumption: nextYear ? `${nextYear.assumptions.recurringRevenueLift} point lift from packaging work into recurring offers` : 'Needs forecast model',
       decisionUse: 'Revenue durability, lender confidence, and buyer quality of revenue.',
     },
     {
       driver: 'Owner dependency',
       currentSource: 'Advisor interview, org chart, sales ownership, delivery map',
-      assumption: '18 point annual reduction from documented workflows and delegation',
+      assumption: nextYear ? `${nextYear.assumptions.ownerDependencyReduction} point reduction from documented workflows and delegation` : 'Needs forecast model',
       decisionUse: 'Transferability, valuation multiple, and succession readiness.',
     },
     {
       driver: 'Value multiple',
-      currentSource: 'Value Engine score and risk profile',
-      assumption: 'Multiple rises as VES and transferability improve',
+      currentSource: 'Industry benchmark + Value Engine + company risk profile',
+      assumption: `Starts at ${model.cfoAdvisory.multipleMethodology.base.toFixed(1)}x industry benchmark and adjusts to ${model.currentMultiple.toFixed(1)}x for the current profile`,
       decisionUse: 'Shows whether operational fixes are actually creating enterprise value.',
     },
   ]
@@ -3807,13 +4012,16 @@ function ForecastAssumptionTable() {
 
 function AdvisorTalkingPoints({ model }: { model: ReturnType<typeof useClientModel> }) {
   const oneYear = model.forecasts.at(-1)
+  const currentPosition = model.currentValue == null
+    ? 'EV/EBITDA is not applicable because normalized EBITDA is nonpositive; use an alternate valuation method.'
+    : `Estimated enterprise value is ${money(model.currentValue)}. The current-earnings methodology ceiling is ${money(model.targetValue)}, separate from the 12-month upside case.`
 
   return (
     <div className="talking-points">
       <article>
         <h3>Open the meeting with</h3>
         <p>
-          "The business is profitable and cash-stable. The real gap is transferability: value is tracking at {money(model.currentValue)}, but the target case is {money(model.targetValue)}. That leaves {money(model.valueGap)} to earn through better systems, recurring revenue, and lower founder dependency."
+          {currentPosition}
         </p>
       </article>
       <article>
@@ -3832,7 +4040,7 @@ function AdvisorTalkingPoints({ model }: { model: ReturnType<typeof useClientMod
         <h3>Close with</h3>
         <p>
           {oneYear
-            ? `The 12-month target case gets value to ${money(oneYear.value)} if the business improves recurring revenue, lowers owner dependency, and holds margin.`
+            ? `The 12-month upside case reaches ${money(oneYear.value)} of enterprise value if the business improves recurring revenue, lowers owner dependency, and holds margin.`
             : 'The next move is documenting the repeatable advisory model and assigning measurable owners.'}
         </p>
       </article>
@@ -3856,7 +4064,7 @@ function GapPlan({ model }: { model: ReturnType<typeof useClientModel> }) {
   return (
     <div className="gap-plan">
       {actions.map((action) => (
-        <article key={action.horizon}>
+        <article key={`${action.horizon}-${action.gap}`}>
           <span>{action.horizon}</span>
           <strong>{action.gap}</strong>
           <p>{action.move}</p>
@@ -3898,11 +4106,11 @@ function MonthlyReport({
           <strong>{model.healthScore}/100</strong>
         </div>
         <div>
-          <span>Estimated value</span>
+          <span>Estimated enterprise value</span>
           <strong>{money(model.currentValue)}</strong>
         </div>
         <div>
-          <span>Value gap</span>
+          <span>Gap to methodology ceiling</span>
           <strong>{money(model.valueGap)}</strong>
         </div>
         <div>
@@ -3913,7 +4121,7 @@ function MonthlyReport({
       <section className="brief-copy">
         <h3>Executive Summary</h3>
         <p>
-          {client.name} is being tracked for profitability, cash stability, transferability, recurring revenue, and owner dependency. The model shows a current value of {money(model.currentValue)} and a target-case gap of {money(model.valueGap)}. The first likely constraint is {model.cfoAdvisory.primaryRisk.label.toLowerCase()}.
+          {client.name} is being tracked for profitability, cash stability, transferability, recurring revenue, and owner dependency. The model shows estimated enterprise value of {money(model.currentValue)} and a current-earnings methodology-ceiling gap of {money(model.valueGap)}. The separate 12-month upside case is {money(nextYear?.value)}. The first likely constraint is {model.cfoAdvisory.primaryRisk.label.toLowerCase()}.
         </p>
       </section>
       <section className="report-section">
@@ -4222,9 +4430,10 @@ export default function App() {
   const visibleClientIds = visibleClientsForSession(authState, session)
   const visibleClients = visibleClientIds.map((clientId) => clientDirectory[clientId]).filter(Boolean)
   const client = visibleClients.find((item) => item.id === activeClientId) ?? visibleClients[0] ?? Object.values(clientDirectory)[0]
-  const model = useClientModel(client)
-  const { financials } = client.data
+  const valuationIndustryBenchmark = getIndustryBenchmark(getIndustryIdByName(client.industry))
   const selectedIndustryBenchmark = getIndustryBenchmark(selectedIndustryId)
+  const model = useClientModel(client, valuationIndustryBenchmark)
+  const { financials } = client.data
   const canUseAdvisorTools = session?.role === 'owner' || session?.role === 'advisor'
   const portalMode: PortalMode = canUseAdvisorTools ? portalModePreference : 'client'
 
@@ -4655,9 +4864,9 @@ export default function App() {
         )}
 
         <div className="nav-summary">
-          <span>Current value</span>
+          <span>Estimated enterprise value</span>
           <strong>{money(model.currentValue)}</strong>
-          <p>{model.valueGap > 0 ? `${money(model.valueGap)} gap to 8x target` : 'Target reached'}</p>
+          <p>{model.valueGap == null ? 'Alternate valuation method required' : model.valueGap > 0 ? `${money(model.valueGap)} gap to ${model.targetMultiple.toFixed(1)}x methodology ceiling` : 'Methodology ceiling reached'}</p>
         </div>
       </aside>
 
@@ -4741,7 +4950,7 @@ export default function App() {
               <MetricCard label="Business Health" value={`${model.healthScore}/100`} sub="Current health blend of KPI quality, margin, cash, transferability, and VES" tone="green" />
               <MetricCard label="Value Engine Score" value={`${model.vesScore.toFixed(1)}/10`} sub={`Up ${model.vesChange.toFixed(1)} this month`} tone="blue" />
               <MetricCard label="Annual Revenue" value={money(financials.revenue)} sub={`${financials.customerCount} active clients, ${client.dataQuality} data`} tone="slate" />
-              <MetricCard label="Value Gap" value={money(model.valueGap)} sub={`${model.currentMultiple.toFixed(1)}x current vs ${model.targetMultiple}x target`} tone="amber" />
+              <MetricCard label="Gap to Methodology Ceiling" value={money(model.valueGap)} sub={`${model.currentMultiple.toFixed(1)}x current vs ${model.targetMultiple.toFixed(1)}x ceiling`} tone="amber" />
             </div>
 
             <Panel title="CFO Advisory Read" subtitle="Forward health, cash timing, and first likely constraint" icon={Gauge}>
@@ -4775,11 +4984,11 @@ export default function App() {
               </div>
             </section>
 
-            <Panel title="Market Valuation" subtitle="Live valuation movement from data and completed objectives" icon={LineChart}>
+            <Panel title="Estimated Enterprise Value" subtitle="Live movement under the current industry-anchored methodology" icon={LineChart}>
               <ValuationMarketChart client={client} model={model} />
             </Panel>
 
-            <Panel title="Company Health Trajectory" subtitle="Month-over-month Value Engine, KPI, health, and valuation movement" icon={BarChart3}>
+            <Panel title="Company Health Trajectory" subtitle="Month-over-month Value Engine, KPI, health, and enterprise-value movement" icon={BarChart3}>
               <CompanyTrajectoryPanel client={client} model={model} />
             </Panel>
 
@@ -4910,8 +5119,9 @@ export default function App() {
             )}
 
             {visibleForecastSections.includes('valuation-range') && (
-              <Panel title="Forecasted Valuation Range" subtitle="Bear, base, and upside cases with risk-adjusted multiples" icon={Target}>
+              <Panel title="Forecasted Valuation Range" subtitle="Industry benchmark multiple adjusted for company-specific quality and risk" icon={Target}>
                 <ValuationRangePanel model={model} />
+                <ValuationMethodologyPanel model={model} benchmark={valuationIndustryBenchmark} />
               </Panel>
             )}
 
@@ -4935,15 +5145,15 @@ export default function App() {
 
             {visibleForecastSections.includes('assumptions') && (
               <Panel title="Forecast Assumptions" subtitle="The levers behind the projection" icon={Target}>
-                <ForecastAssumptionTable />
+                <ForecastAssumptionTable model={model} />
                 <div className="forecast-grid">
                   <article>
                     <span>Current position</span>
-                    <p>Value is tracking at {money(model.currentValue)} using normalized EBITDA and a {model.currentMultiple.toFixed(1)}x score-derived multiple.</p>
+                    <p>Value is tracking at {money(model.currentValue)} using normalized EBITDA and a {model.currentMultiple.toFixed(1)}x industry-anchored multiple.</p>
                   </article>
                   <article>
                     <span>Growth case</span>
-                    <p>Base forecast assumes 9% annual revenue growth, 2.4 points of margin improvement, and steady VES lift from action-plan execution.</p>
+                    <p>Base forecast uses benchmark-aware revenue growth, margin expansion, recurring revenue, owner-dependency, collections, and concentration assumptions.</p>
                   </article>
                   <article>
                     <span>What changes the math</span>
@@ -4960,10 +5170,10 @@ export default function App() {
             {visibleForecastSections.includes('multiple-sensitivity') && (
               <Panel title="Multiple Sensitivity" subtitle="Normalized EBITDA across buyer multiple cases" icon={Target}>
                 <div className="multiple-grid">
-                  {[3, 4, 5, 6, 7, 8].map((multiple) => (
-                    <article key={multiple} className={Math.round(model.currentMultiple) === multiple ? 'current' : multiple === 8 ? 'target' : ''}>
+                  {buildSensitivityMultiples(model.currentMultiple, model.targetMultiple).map((multiple) => (
+                    <article key={multiple} className={Math.abs(model.currentMultiple - multiple) < 0.05 ? 'current' : Math.abs(model.targetMultiple - multiple) < 0.05 ? 'target' : ''}>
                       <span>{multiple}x</span>
-                      <strong>{money(financials.normalizedEbitda * multiple)}</strong>
+                      <strong>{money(calculateEnterpriseValue(financials.normalizedEbitda, multiple))}</strong>
                     </article>
                   ))}
                 </div>
@@ -4988,7 +5198,7 @@ export default function App() {
                   <button
                     type="button"
                     className="download-action"
-                    onClick={() => downloadAdvisorPdf(client, model, selectedIndustryBenchmark)}
+                    onClick={() => downloadAdvisorPdf(client, model, valuationIndustryBenchmark)}
                   >
                     <Download size={16} />
                     PDF
@@ -5004,13 +5214,26 @@ export default function App() {
               subtitle="Owner decision report for client portal or email"
               icon={CalendarCheck}
               action={
-                <button type="button" className="download-action" onClick={() => downloadClientPdf(client, model, selectedIndustryBenchmark)}>
+                <button type="button" className="download-action" onClick={() => downloadClientPdf(client, model, valuationIndustryBenchmark)}>
                   <Download size={16} />
                   PDF
                 </button>
               }
             >
-              <MonthlyReport client={client} model={model} industryBenchmark={selectedIndustryBenchmark} />
+              <MonthlyReport client={client} model={model} industryBenchmark={valuationIndustryBenchmark} />
+            </Panel>
+            <Panel
+              title="How We Estimate Business Value"
+              subtitle="Client-shareable explanation of the valuation methodology"
+              icon={CircleDollarSign}
+              action={
+                <button type="button" className="download-action" onClick={() => downloadValuationMethodologyPdf(client, model, valuationIndustryBenchmark)}>
+                  <Download size={16} />
+                  PDF
+                </button>
+              }
+            >
+              <ValuationMethodologyPanel model={model} benchmark={valuationIndustryBenchmark} />
             </Panel>
           </div>
         )}

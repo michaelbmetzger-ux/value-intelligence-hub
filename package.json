@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",
+    "pdf:valuation-methodology": "node scripts/create_valuation_methodology_pdf.cjs",
     "preview": "vite preview"
   },
   "dependencies": {

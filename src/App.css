@@ -1766,6 +1766,10 @@
   gap: 12px;
 }
 
+.brief-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .kpi-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -2213,6 +2217,70 @@
   color: #475569;
 }
 
+.valuation-methodology-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.methodology-formula {
+  padding: 18px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+}
+
+.methodology-formula span,
+.methodology-adjustments span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.methodology-formula strong {
+  display: block;
+  margin-top: 7px;
+  color: #1e3a8a;
+  font-size: 20px;
+}
+
+.methodology-formula p,
+.methodology-adjustments p,
+.methodology-note {
+  margin: 8px 0 0;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.methodology-adjustments {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.methodology-adjustments article {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.methodology-adjustments strong {
+  display: block;
+  margin-top: 7px;
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.methodology-note {
+  padding: 12px 14px;
+  border-left: 3px solid #94a3b8;
+  background: #f8fafc;
+}
+
 .assumption-table {
   display: grid;
   gap: 10px;
@@ -2587,6 +2655,7 @@
   .forecast-industry-comparison,
   .forecast-source-map,
   .forecast-table,
+  .methodology-adjustments,
   .gap-plan,
   .report-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2665,6 +2734,7 @@
   .forecast-industry-comparison,
   .forecast-source-map,
   .forecast-table,
+  .methodology-adjustments,
   .gap-plan,
   .confidence-grid,
   .question-list,
