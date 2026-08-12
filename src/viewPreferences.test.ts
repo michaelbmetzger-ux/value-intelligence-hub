@@ -36,4 +36,16 @@ describe('advisor view preferences', () => {
     expect(appSource).toContain('toggle-switch')
     expect(appSource).not.toContain('view-toggle-grid')
   })
+
+  it('renders primary sidebar navigation before advisor management forms so tabs stay visible on page load', () => {
+    const navIndex = appSource.indexOf('<nav>')
+    const newCompanyIndex = appSource.indexOf('className="new-company-form"')
+    const inviteIndex = appSource.indexOf('<InviteManager')
+
+    expect(navIndex).toBeGreaterThan(-1)
+    expect(newCompanyIndex).toBeGreaterThan(-1)
+    expect(inviteIndex).toBeGreaterThan(-1)
+    expect(navIndex).toBeLessThan(newCompanyIndex)
+    expect(navIndex).toBeLessThan(inviteIndex)
+  })
 })

@@ -4600,6 +4600,23 @@ export default function App() {
           </select>
         </label>
 
+        <nav>
+          {nav.map((item) => {
+            const Icon = item.icon
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={activeView === item.id ? 'active' : ''}
+                onClick={() => setActiveView(item.id)}
+              >
+                <Icon size={18} />
+                {item.label}
+              </button>
+            )
+          })}
+        </nav>
+
         {canUseAdvisorTools && (
           <>
             <form className="new-company-form" onSubmit={addCompany}>
@@ -4636,23 +4653,6 @@ export default function App() {
             />
           </>
         )}
-
-        <nav>
-          {nav.map((item) => {
-            const Icon = item.icon
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={activeView === item.id ? 'active' : ''}
-                onClick={() => setActiveView(item.id)}
-              >
-                <Icon size={18} />
-                {item.label}
-              </button>
-            )
-          })}
-        </nav>
 
         <div className="nav-summary">
           <span>Current value</span>
