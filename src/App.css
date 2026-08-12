@@ -2119,6 +2119,14 @@
   line-height: 1.1;
 }
 
+.forecast-table header small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .forecast-table article > div {
   display: grid;
   gap: 8px;

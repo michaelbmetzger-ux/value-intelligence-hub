@@ -3885,6 +3885,7 @@ function ForecastTable({ model }: { model: ReturnType<typeof useClientModel> }) 
           <header>
             <span>{item.label}</span>
             <strong>{money(item.value)}</strong>
+            <small>Projected enterprise value</small>
           </header>
           <div>
             <p><b>Revenue</b>{money(item.revenue)}</p>
@@ -4121,7 +4122,7 @@ function MonthlyReport({
       <section className="brief-copy">
         <h3>Executive Summary</h3>
         <p>
-          {client.name} is being tracked for profitability, cash stability, transferability, recurring revenue, and owner dependency. The model shows estimated enterprise value of {money(model.currentValue)} and a current-earnings methodology-ceiling gap of {money(model.valueGap)}. The separate 12-month upside case is {money(nextYear?.value)}. The first likely constraint is {model.cfoAdvisory.primaryRisk.label.toLowerCase()}.
+          {client.name} is being tracked for profitability, cash stability, transferability, recurring revenue, and owner dependency. The model shows estimated enterprise value of {money(model.currentValue)} and a current-earnings methodology-ceiling gap of {money(model.valueGap)}. The separate 12-month upside enterprise-value case is {money(nextYear?.value)}. The first likely constraint is {model.cfoAdvisory.primaryRisk.label.toLowerCase()}.
         </p>
       </section>
       <section className="report-section">
@@ -4164,18 +4165,21 @@ function MonthlyReport({
         <h3>Forecast For Decisions</h3>
         <div className="report-forecast-grid">
           <article>
-            <span>Next quarter</span>
+            <span>Next-quarter enterprise value</span>
             <strong>{nextQuarter ? money(nextQuarter.value) : 'Missing'}</strong>
             <p>{nextQuarter ? `${money(nextQuarter.revenue)} revenue, ${nextQuarter.margin.toFixed(1)}% EBITDA margin, ${nextQuarter.projectedVes.toFixed(1)}/10 VES.` : 'Forecast unavailable.'}</p>
           </article>
           <article>
-            <span>Next year</span>
+            <span>Next-year enterprise value</span>
             <strong>{nextYear ? money(nextYear.value) : 'Missing'}</strong>
             <p>{nextYear ? `${money(nextYear.revenue)} revenue, ${nextYear.margin.toFixed(1)}% EBITDA margin, ${nextYear.projectedVes.toFixed(1)}/10 VES.` : 'Forecast unavailable.'}</p>
           </article>
         </div>
         <p className="report-note">
           Forecasts pull from QBO financials, Sales by Customer/CRM data, Value Engine answers, and visible advisor assumptions. They should be rebuilt every month when the new data is uploaded.
+        </p>
+        <p className="report-note">
+          Enterprise value is not owner proceeds. A transaction normally subtracts debt, adds excess cash, and then accounts for taxes, fees, working-capital targets, and other closing adjustments.
         </p>
       </section>
       <section className="report-section">
@@ -5119,7 +5123,7 @@ export default function App() {
             )}
 
             {visibleForecastSections.includes('valuation-range') && (
-              <Panel title="Forecasted Valuation Range" subtitle="Industry benchmark multiple adjusted for company-specific quality and risk" icon={Target}>
+              <Panel title="Forecasted Enterprise Value Range" subtitle="Industry benchmark multiple adjusted for company-specific quality and risk" icon={Target}>
                 <ValuationRangePanel model={model} />
                 <ValuationMethodologyPanel model={model} benchmark={valuationIndustryBenchmark} />
               </Panel>
@@ -5149,7 +5153,7 @@ export default function App() {
                 <div className="forecast-grid">
                   <article>
                     <span>Current position</span>
-                    <p>Value is tracking at {money(model.currentValue)} using normalized EBITDA and a {model.currentMultiple.toFixed(1)}x industry-anchored multiple.</p>
+                    <p>Estimated enterprise value is {money(model.currentValue)} using normalized EBITDA and a {model.currentMultiple.toFixed(1)}x industry-anchored multiple.</p>
                   </article>
                   <article>
                     <span>Growth case</span>
