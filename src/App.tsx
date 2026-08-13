@@ -16,6 +16,7 @@ import {
   Database,
   Download,
   FileSpreadsheet,
+  FlaskConical,
   Gauge,
   LineChart,
   ListChecks,
@@ -49,9 +50,13 @@ import {
   projectReducedPercentage,
   type MultipleMethodology,
 } from './valuationModel'
+import {
+  DecisionLab,
+  type DecisionLabScenarioRecord,
+} from './DecisionLab'
 import './App.css'
 
-type View = 'dashboard' | 'value-engine' | 'kpis' | 'forecast' | 'reports'
+type View = 'dashboard' | 'value-engine' | 'decision-lab' | 'kpis' | 'forecast' | 'reports'
 type PortalMode = 'advisor' | 'client'
 type ClientId = string
 type IndustryBenchmarkId =
@@ -197,6 +202,8 @@ type Client = {
     qboImportLog?: QboImportLog[]
     crmImportLog?: QboImportLog[]
     advisorObjectives: AdvisorObjective[]
+    decisionLabScenarios?: DecisionLabScenarioRecord[]
+    sharedDecisionLabScenarioId?: string
   }
 }
 
@@ -1141,6 +1148,7 @@ function readStoredClients() {
             qboImportLog: client.data.qboImportLog ?? [],
             crmImportLog: client.data.crmImportLog ?? [],
             advisorObjectives: mergeAdvisorObjectives(client.data.advisorObjectives),
+            decisionLabScenarios: client.data.decisionLabScenarios ?? [],
           },
         },
       ]),
@@ -4743,6 +4751,46 @@ export default function App() {
     setUploadStatus({ tone: 'success', message: 'Value Engine answer saved. The dashboard trajectory now reflects any score change.' })
   }
 
+  const handleSaveDecisionLabScenario = (scenario: DecisionLabScenarioRecord) => {
+    setClientDirectory((current) => {
+      const currentClient = current[activeClientId]
+      if (!currentClient) return current
+      const existing = currentClient.data.decisionLabScenarios ?? []
+      const scenarios = existing.some((item) => item.id === scenario.id)
+        ? existing.map((item) => item.id === scenario.id ? scenario : item)
+        : [...existing, scenario]
+      return {
+        ...current,
+        [activeClientId]: {
+          ...currentClient,
+          data: { ...currentClient.data, decisionLabScenarios: scenarios },
+        },
+      }
+    })
+  }
+
+  const handleShareDecisionLabScenario = (scenario: DecisionLabScenarioRecord) => {
+    setClientDirectory((current) => {
+      const currentClient = current[activeClientId]
+      if (!currentClient) return current
+      const existing = currentClient.data.decisionLabScenarios ?? []
+      const scenarios = existing.some((item) => item.id === scenario.id)
+        ? existing.map((item) => item.id === scenario.id ? scenario : item)
+        : [...existing, scenario]
+      return {
+        ...current,
+        [activeClientId]: {
+          ...currentClient,
+          data: {
+            ...currentClient.data,
+            decisionLabScenarios: scenarios,
+            sharedDecisionLabScenarioId: scenario.id,
+          },
+        },
+      }
+    })
+  }
+
   const toggleKpiSection = (section: KpiViewSection) => {
     setVisibleKpiSections((current) => {
       if (current.includes(section)) {
@@ -4779,6 +4827,7 @@ export default function App() {
   const nav = [
     { id: 'dashboard', label: 'Dashboard', icon: Building2 },
     { id: 'value-engine', label: 'Value Engine', icon: Radar },
+    { id: 'decision-lab', label: 'Decision Lab', icon: FlaskConical },
     { id: 'kpis', label: 'KPIs', icon: BarChart3 },
     { id: 'forecast', label: 'Forecast', icon: LineChart },
     { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
@@ -5047,6 +5096,24 @@ export default function App() {
                 onAnswerSave={handleValueEngineAnswerSave}
               />
             </Panel>
+          </div>
+        )}
+
+        {activeView === 'decision-lab' && (
+          <div className="page-stack">
+            <DecisionLab
+              clientId={client.id}
+              companyName={client.name}
+              portalMode={portalMode}
+              scores={model.dimensionScores.map((item) => ({ id: item.id, label: item.label, score: item.score, color: item.color }))}
+              financials={financials}
+              benchmark={valuationIndustryBenchmark}
+              dataQuality={client.dataQuality}
+              savedScenarios={client.data.decisionLabScenarios ?? []}
+              sharedScenarioId={client.data.sharedDecisionLabScenarioId}
+              onSave={handleSaveDecisionLabScenario}
+              onShare={handleShareDecisionLabScenario}
+            />
           </div>
         )}
 
