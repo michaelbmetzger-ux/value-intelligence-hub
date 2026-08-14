@@ -244,7 +244,6 @@ export default function ValueIntelligenceSite() {
           <a href="#value-growth" onClick={() => setMenuOpen(false)}>Value growth</a>
           <a href="#advisors" onClick={() => setMenuOpen(false)}>Advisors</a>
           <a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a>
-          <a className="vih-nav-login" href="/">Client login</a>
           <a className="vih-button small" href={contactUrl}>Start a conversation <ArrowRight size={16} /></a>
         </nav>
       </header>
@@ -516,7 +515,7 @@ export default function ValueIntelligenceSite() {
         </div>
         <div className="vih-container vih-footer-bottom">
           <p>Value Intelligence Hub is an advisory tool from Lifepoint Financial Design.</p>
-          <div><a href="https://lifepointfd.com/privacy-policy/">Privacy</a><a href="https://lifepointfd.com/">Lifepoint Financial Design</a><a href="/">Client login</a></div>
+          <div><a href="https://lifepointfd.com/privacy-policy/">Privacy</a><a href="https://lifepointfd.com/">Lifepoint Financial Design</a></div>
         </div>
       </footer>
     </div>

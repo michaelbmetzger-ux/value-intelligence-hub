@@ -31,6 +31,7 @@ export const valueIntelligenceStructuredData = [
     '@type': 'ProfessionalService',
     name: 'Lifepoint Financial Design - Fractional CFO and Business Value Growth',
     description: 'Fractional CFO leadership, business value-growth advisory, and monthly company-health insight through the Value Intelligence Hub for founder-led service businesses.',
+    url: 'https://value.lifepointfd.com/',
     areaServed: 'United States',
     provider: {
       '@type': 'Organization',

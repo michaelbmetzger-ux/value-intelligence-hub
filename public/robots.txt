@@ -1,5 +1,4 @@
 User-agent: *
-Allow: /value-intelligence
-Disallow: /
+Allow: /
 
-Sitemap: https://lifepointfd.com/sitemap.xml
+Sitemap: https://value.lifepointfd.com/sitemap.xml

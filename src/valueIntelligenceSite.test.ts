@@ -10,8 +10,9 @@ const robotsSource = readFileSync(new URL('../public/robots.txt', import.meta.ur
 const sitemapSource = readFileSync(new URL('../public/sitemap.xml', import.meta.url), 'utf8')
 
 describe('Value Intelligence Hub marketing site', () => {
-  it('uses a separate route from the client portal', () => {
-    expect(mainSource).toContain("window.location.pathname.startsWith('/value-intelligence')")
+  it('uses a public-only entry point with no private Hub import or route', () => {
+    expect(mainSource).not.toContain("from './App.tsx'")
+    expect(mainSource).not.toContain('<App />')
     expect(mainSource).toContain('<ValueIntelligenceSite />')
   })
 
@@ -30,13 +31,14 @@ describe('Value Intelligence Hub marketing site', () => {
     expect(seoSource).toContain("'@type': 'ProfessionalService'")
     expect(mainSource).toContain('Fractional CFO & Business Value Growth')
     expect(mainSource).toContain('application/ld+json')
-    expect(mainSource).toContain("https://lifepointfd.com/value-intelligence")
-    expect(mainSource).toContain("noindex,nofollow,noarchive")
+    expect(mainSource).toContain("https://value.lifepointfd.com/")
+    expect(mainSource).not.toContain("noindex,nofollow,noarchive")
     expect(htmlSource).toContain('index,follow,max-image-preview:large')
     expect(htmlSource).toContain('value-intelligence-hub-social.jpg')
-    expect(robotsSource).toContain('Allow: /value-intelligence')
-    expect(robotsSource).toContain('Disallow: /')
-    expect(sitemapSource).toContain('<loc>https://lifepointfd.com/value-intelligence</loc>')
+    expect(htmlSource).toContain('https://value.lifepointfd.com/')
+    expect(robotsSource).toContain('Allow: /')
+    expect(robotsSource).not.toContain('Disallow: /')
+    expect(sitemapSource).toContain('<loc>https://value.lifepointfd.com/</loc>')
   })
 
   it('does not present the estimate as a formal valuation', () => {
@@ -45,6 +47,10 @@ describe('Value Intelligence Hub marketing site', () => {
 
   it('uses Lifepoint’s existing contact path for the primary CTA', () => {
     expect(siteSource).toContain('https://lifepointfd.com/get-started-here/')
+  })
+
+  it('does not expose a private Hub route from the public navigation', () => {
+    expect(siteSource).not.toContain('Client login')
   })
 
   it('gives the navigation logo and Value Intelligence wordmark clear separation', () => {
