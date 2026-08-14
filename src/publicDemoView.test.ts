@@ -4,11 +4,17 @@ import { describe, expect, it } from 'vitest'
 const demoSource = readFileSync(new URL('./PublicValueDemo.tsx', import.meta.url), 'utf8')
 
 describe('public Value Intelligence demo experience', () => {
-  it('uses the real scenario model with three sample-company choices', () => {
+  it('allows any or all three sample-company improvements to be selected', () => {
     expect(demoSource).toContain('calculatePublicDemoScenario')
     expect(demoSource).toContain('publicDemoImprovements.map')
     expect(demoSource).toContain('aria-pressed')
-    expect(demoSource).toContain('Select up to two improvements')
+    expect(demoSource).toContain('Select up to three improvements')
+    expect(demoSource).toContain('/3 selected')
+  })
+
+  it('explains that each choice models a substantial evidence-backed transformation', () => {
+    expect(demoSource).toContain('4.0 → 9.5')
+    expect(demoSource).toContain('substantial, evidence-backed transformation')
   })
 
   it('shows a meaningful result and the evidence required to support it', () => {

@@ -20,11 +20,19 @@ describe('public Value Intelligence demo', () => {
     expect(result.selectedImprovements[0]?.evidence.length).toBeGreaterThan(0)
   })
 
-  it('limits the public experience to two valid, unique improvements', () => {
+  it('allows all three valid, unique improvements to be selected together', () => {
     const result = calculatePublicDemoScenario(['leadership', 'leadership', 'invalid', 'operations', 'finance'])
 
-    expect(result.selectedImprovements.map((item) => item.id)).toEqual(['leadership', 'operations'])
-    expect(result.scenario.changedCategories).toHaveLength(2)
+    expect(result.selectedImprovements.map((item) => item.id)).toEqual(['leadership', 'operations', 'finance'])
+    expect(result.scenario.changedCategories).toHaveLength(3)
+  })
+
+  it('shows a visibly larger valuation effect when all three transformations are modeled', () => {
+    const result = calculatePublicDemoScenario(['leadership', 'operations', 'finance'])
+
+    expect(result.scenario.scoreDelta).toBeGreaterThanOrEqual(2)
+    expect(result.scenario.multipleDelta).toBeGreaterThanOrEqual(0.5)
+    expect(result.scenario.enterpriseValueDelta).toBeGreaterThanOrEqual(250_000)
   })
 
   it('offers only leadership, operations, and finance choices', () => {

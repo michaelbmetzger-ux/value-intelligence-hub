@@ -71,6 +71,8 @@ const benchmark: IndustryBenchmarkInputs = {
   evEbitdaMultiple: 4.6,
 }
 
+const transformationCategories = new Set(['leadership', 'operations', 'finance'])
+
 const baselineScores: DecisionLabCategoryScore[] = [
   'planning',
   'leadership',
@@ -83,8 +85,8 @@ const baselineScores: DecisionLabCategoryScore[] = [
 ].map((id) => ({
   id,
   label: id.charAt(0).toUpperCase() + id.slice(1),
-  currentScore: 6,
-  proposedScore: 6,
+  currentScore: transformationCategories.has(id) ? 4 : 6,
+  proposedScore: transformationCategories.has(id) ? 4 : 6,
 }))
 
 export function calculatePublicDemoScenario(selectedIds: string[]): {
@@ -96,13 +98,13 @@ export function calculatePublicDemoScenario(selectedIds: string[]): {
 } {
   const selectedImprovements = selectedIds.reduce<PublicDemoImprovement[]>((selected, id) => {
     const improvement = publicDemoImprovements.find((item) => item.id === id)
-    if (!improvement || selected.some((item) => item.id === id) || selected.length >= 2) return selected
+    if (!improvement || selected.some((item) => item.id === id) || selected.length >= 3) return selected
     return [...selected, improvement]
   }, [])
   const selectedSet = new Set(selectedImprovements.map((item) => item.id))
   const scores = baselineScores.map((item) => ({
     ...item,
-    proposedScore: selectedSet.has(item.id as PublicDemoImprovement['id']) ? 9 : item.currentScore,
+    proposedScore: selectedSet.has(item.id as PublicDemoImprovement['id']) ? 9.5 : item.currentScore,
   }))
 
   return {

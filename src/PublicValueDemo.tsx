@@ -21,7 +21,6 @@ export default function PublicValueDemo() {
   const toggleImprovement = (id: string) => {
     setSelectedIds((current) => {
       if (current.includes(id)) return current.filter((item) => item !== id)
-      if (current.length >= 2) return current
       return [...current, id]
     })
   }
@@ -32,7 +31,7 @@ export default function PublicValueDemo() {
         <div className="vih-section-heading centered wide vih-demo-heading">
           <span className="vih-kicker">TRY A SMALL PIECE OF THE HUB</span>
           <h2>Explore a sample business.</h2>
-          <p>Choose one or two improvements and see how stronger operating evidence could affect a fictional company’s Value Engine score, modeled multiple, and projected enterprise value.</p>
+          <p>Choose any or all three improvements and see how stronger operating evidence could affect a fictional company’s Value Engine score, modeled multiple, and projected enterprise value.</p>
         </div>
 
         <div className="vih-demo-shell">
@@ -51,26 +50,24 @@ export default function PublicValueDemo() {
           <div className="vih-demo-grid">
             <div className="vih-demo-choices">
               <header>
-                <div><small>STEP 1</small><h3>Select up to two improvements</h3></div>
-                <span>{selectedImprovements.length}/2 selected</span>
+                <div><small>STEP 1</small><h3>Select up to three improvements</h3></div>
+                <span>{selectedImprovements.length}/3 selected</span>
               </header>
-              <p className="vih-demo-instruction">These are hypothetical improvements to a sample business. Select a card to model the scenario.</p>
+              <p className="vih-demo-instruction">Each card models a substantial, evidence-backed transformation in that category. Select a card to add it to the scenario.</p>
               <div className="vih-demo-choice-list">
                 {publicDemoImprovements.map((improvement) => {
                   const selected = selectedIds.includes(improvement.id)
-                  const unavailable = !selected && selectedIds.length >= 2
                   return (
                     <button
                       type="button"
                       className={selected ? 'selected' : ''}
                       aria-pressed={selected}
-                      disabled={unavailable}
                       key={improvement.id}
                       onClick={() => toggleImprovement(improvement.id)}
                     >
                       <span className="vih-demo-check">{selected ? <Check size={16} /> : '+'}</span>
                       <span><strong>{improvement.title}</strong><small>{improvement.description}</small></span>
-                      <em>6.0 → 9.0</em>
+                      <em>4.0 → 9.5</em>
                     </button>
                   )
                 })}
