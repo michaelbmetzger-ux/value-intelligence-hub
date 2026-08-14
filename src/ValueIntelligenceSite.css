@@ -50,6 +50,7 @@ body { margin: 0; }
 }
 
 .vih-logo { display: flex; align-items: center; gap: 13px; }
+.vih-nav-shell .vih-logo { gap: 22px; }
 .vih-logo img { width: 174px; height: auto; filter: brightness(0) saturate(100%) invert(13%) sepia(25%) saturate(1114%) hue-rotate(158deg) brightness(94%) contrast(94%); }
 .vih-logo > span { width: 1px; height: 31px; background: #d7e1e5; }
 .vih-logo > div { display: flex; flex-direction: column; line-height: 1.02; }

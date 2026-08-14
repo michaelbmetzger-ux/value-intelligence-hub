@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 const mainSource = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8')
 const siteSource = readFileSync(new URL('./ValueIntelligenceSite.tsx', import.meta.url), 'utf8')
+const siteStyles = readFileSync(new URL('./ValueIntelligenceSite.css', import.meta.url), 'utf8')
 const seoSource = readFileSync(new URL('./valueIntelligenceSeo.ts', import.meta.url), 'utf8')
 const htmlSource = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
 const robotsSource = readFileSync(new URL('../public/robots.txt', import.meta.url), 'utf8')
@@ -44,6 +45,10 @@ describe('Value Intelligence Hub marketing site', () => {
 
   it('uses Lifepoint’s existing contact path for the primary CTA', () => {
     expect(siteSource).toContain('https://lifepointfd.com/get-started-here/')
+  })
+
+  it('gives the navigation logo and Value Intelligence wordmark clear separation', () => {
+    expect(siteStyles).toContain('.vih-nav-shell .vih-logo { gap: 22px; }')
   })
 
   it('offers a safe public sample-business demo without collecting company data', () => {
