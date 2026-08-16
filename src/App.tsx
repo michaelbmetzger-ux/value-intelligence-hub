@@ -3856,30 +3856,63 @@ function QboGuide() {
 }
 
 function ValuationMethodologyPanel({ model, benchmark }: { model: ReturnType<typeof useClientModel>; benchmark: IndustryBenchmark }) {
+  const methodology = model.cfoAdvisory.multipleMethodology
+  const companyAdjustments = methodology.adjustments.filter((adjustment) => adjustment.label !== 'Industry benchmark')
+
   return (
     <div className="valuation-methodology-panel">
       <article className="methodology-formula">
-        <span>Core formula</span>
-        <strong>Normalized EBITDA × industry-anchored multiple</strong>
+        <span>How this multiple was determined</span>
+        <strong>{methodology.base.toFixed(1)}x industry anchor → {methodology.adjusted.toFixed(1)}x company multiple</strong>
         <p>
-          The model starts with {benchmark.name} at {benchmark.evEbitdaMultiple.toFixed(1)}x, then adjusts to {model.currentMultiple.toFixed(1)}x for company-specific quality, risk, data confidence, and transferability.
+          The model starts with the {benchmark.name} EV/EBITDA benchmark, then adjusts it for the specific company facts shown below.
         </p>
       </article>
-      <div className="methodology-adjustments">
-        {model.cfoAdvisory.multipleMethodology.adjustments.map((adjustment) => (
-          <article key={adjustment.label}>
+
+      <div className="multiple-bridge" aria-label="Company multiple bridge">
+        <div className="multiple-bridge-row base">
+          <div>
+            <strong>Industry starting multiple</strong>
+            <small>{benchmark.name}</small>
+          </div>
+          <b>{methodology.base.toFixed(1)}x</b>
+        </div>
+        {companyAdjustments.map((adjustment) => (
+          <div
+            className={`multiple-bridge-row ${adjustment.amount > 0 ? 'positive' : adjustment.amount < 0 ? 'negative' : 'neutral'}`}
+            key={adjustment.label}
+          >
             <span>{adjustment.label}</span>
-            <strong>
-              {adjustment.label === 'Industry benchmark'
-                ? `${model.cfoAdvisory.multipleMethodology.base.toFixed(1)}x base`
-                : `${adjustment.amount >= 0 ? '+' : ''}${adjustment.amount.toFixed(1)}x`}
-            </strong>
-            <p>{adjustment.reason}</p>
-          </article>
+            <b>{adjustment.amount >= 0 ? '+' : ''}{adjustment.amount.toFixed(1)}x</b>
+          </div>
         ))}
+        <div className="multiple-bridge-row final">
+          <div>
+            <strong>Company modeled multiple</strong>
+            <small>Applied to normalized EBITDA</small>
+          </div>
+          <b>{methodology.adjusted.toFixed(1)}x</b>
+        </div>
       </div>
+
+      <details className="methodology-details">
+        <summary>See why each adjustment applies</summary>
+        <div className="methodology-adjustments">
+          {methodology.adjustments.map((adjustment) => (
+            <article key={adjustment.label}>
+              <span>{adjustment.label}</span>
+              <strong>
+                {adjustment.label === 'Industry benchmark'
+                  ? `${methodology.base.toFixed(1)}x base`
+                  : `${adjustment.amount >= 0 ? '+' : ''}${adjustment.amount.toFixed(1)}x`}
+              </strong>
+              <p>{adjustment.reason}</p>
+            </article>
+          ))}
+        </div>
+      </details>
       <p className="methodology-note">
-        This is a planning estimate, not a formal appraisal or offer. The range should be refreshed when financials, add-backs, industry evidence, or operating facts change.
+        Enterprise value equals normalized EBITDA multiplied by the company modeled multiple. This is decision support, not a formal appraisal or offer.
       </p>
     </div>
   )
@@ -5039,6 +5072,7 @@ export default function App() {
 
             <Panel title="Estimated Enterprise Value" subtitle="Live movement under the current industry-anchored methodology" icon={LineChart}>
               <ValuationMarketChart client={client} model={model} />
+              <ValuationMethodologyPanel model={model} benchmark={valuationIndustryBenchmark} />
             </Panel>
 
             <Panel title="Company Health Trajectory" subtitle="Month-over-month Value Engine, KPI, health, and enterprise-value movement" icon={BarChart3}>

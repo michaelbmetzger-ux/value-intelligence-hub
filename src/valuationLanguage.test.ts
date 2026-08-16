@@ -20,4 +20,14 @@ describe('client-facing enterprise-value language', () => {
   it('does not describe EV/EBITDA output as generic value', () => {
     expect(appSource).not.toContain('Value is tracking at')
   })
+
+  it('shows a reconciled company-multiple bridge beside the dashboard enterprise value', () => {
+    expect(appSource).toMatch(
+      /title="Estimated Enterprise Value"[\s\S]*?<ValuationMarketChart[\s\S]*?<ValuationMethodologyPanel/,
+    )
+    expect(appSource).toContain('How this multiple was determined')
+    expect(appSource).toContain('Industry starting multiple')
+    expect(appSource).toContain('Company modeled multiple')
+    expect(appSource).toContain('See why each adjustment applies')
+  })
 })
